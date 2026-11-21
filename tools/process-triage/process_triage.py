@@ -755,9 +755,9 @@ class PackageOwners:
         if not record:
             return None
         when, origin, kind, burst = record
-        prefix = "in a burst of apt installs (an install script): " if burst else ""
-        suffix = " (as a dependency)" if kind == "dependency" else ""
-        return f"installed {fmt_date(when)} by {prefix}`{redact_text(origin)[:140]}`{suffix}"
+        suffix = " as a dependency" if kind == "dependency" else ""
+        burst_note = "; one of a burst of apt installs within minutes (an install script)" if burst else ""
+        return f"installed {fmt_date(when)}{suffix} by `{redact_text(origin)[:140]}`{burst_note}"
 
     def history_covers_install(self) -> bool:
         """True when apt history reaches back to when this system was installed."""
