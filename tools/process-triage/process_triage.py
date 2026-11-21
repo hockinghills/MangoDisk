@@ -42,7 +42,7 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -2273,13 +2273,17 @@ class NetdataHistory:
         self.charts: Set[str] = set()
         self.first_entry: Optional[float] = None
         self.available = False
+        self.errors: List[str] = []
 
     def _get(self, path: str) -> Optional[dict]:
-        try:
-            with urllib.request.urlopen(self.base + path, timeout=self.timeout) as response:
-                return json.loads(response.read().decode("utf-8", "replace"))
-        except (OSError, ValueError):
-            return None
+        for attempt in range(2):
+            try:
+                with urllib.request.urlopen(self.base + path, timeout=self.timeout * (attempt + 1)) as response:
+                    return json.loads(response.read().decode("utf-8", "replace"))
+            except (OSError, ValueError) as error:
+                if attempt:
+                    self.errors.append(f"{path.split('?')[0]}: {error}")
+        return None
 
     def connect(self) -> bool:
         charts = self._get("/api/v1/charts")
@@ -2303,9 +2307,10 @@ class NetdataHistory:
                 totals.append(float(sum(values)))
         return totals
 
-    def charts_for(self, group: "Group") -> List[Tuple[str, str, str]]:
+    def charts_for(self, group: "Group", tried: Optional[List[str]] = None) -> List[Tuple[str, str, str]]:
         """(metric, chart id, where the numbers come from) for one program row."""
         found: List[Tuple[str, str, str]] = []
+        tried = tried if tried is not None else []
         prov = group.prov
         if prov.kind == "container" and not prov.name.startswith(("docker container", "podman container")):
             name = prov.name.replace(" (LXC)", "")
@@ -2336,6 +2341,7 @@ class NetdataHistory:
             if name in GENERIC_APP_NAMES or len(name) < 3:
                 continue
             chart = f"app.{name}_cpu_utilization"
+            tried.append(name)
             if chart in self.charts:
                 where = f"every process named `{name}`"
                 found.append(("cpu", chart, where))
@@ -2345,10 +2351,11 @@ class NetdataHistory:
         return found
 
     def history_for(self, group: "Group") -> Dict[str, object]:
-        charts = self.charts_for(group)
+        tried: List[str] = []
+        charts = self.charts_for(group, tried)
         if not charts:
-            return {}
-        out: Dict[str, object] = {"source": charts[0][2]}
+            return {"no_chart": tried} if tried else {}
+        out: Dict[str, object] = {"source": charts[0][2], "chart": charts[0][1]}
         spans = (("7d", 7 * 86400, 168), ("30d", 30 * 86400, 120))
         for metric, chart, _ in charts:
             for label, seconds, points in spans:
@@ -2367,7 +2374,9 @@ class NetdataHistory:
                     out[f"disk_bytes_{label}"] = out.get(f"disk_bytes_{label}", 0) + sum(values) * window * 1024
         if self.first_entry and NOW - self.first_entry < 30 * 86400:
             out["since"] = self.first_entry
-        return out if len(out) > 1 else {}
+        if "cpu_avg_7d" not in out:
+            out["no_data"] = True
+        return out
 
 
 def fmt_volume(num_bytes: Optional[float]) -> str:
@@ -2377,6 +2386,10 @@ def fmt_volume(num_bytes: Optional[float]) -> str:
 def history_text(history: Dict[str, object]) -> str:
     if not history:
         return ""
+    if "no_chart" in history:
+        return "no matching Netdata chart (looked for program groups: " + ", ".join(f"`{n}`" for n in history["no_chart"][:6]) + ")"
+    if history.get("no_data"):
+        return f"Netdata has chart `{history['chart']}` but returned no data for it"
     parts = []
     if "cpu_avg_7d" in history:
         parts.append(f"CPU last 7 days avg {history['cpu_avg_7d']:.2f}% (busiest hour {history['cpu_peak_7d']:.1f}%)")
@@ -2387,13 +2400,26 @@ def history_text(history: Dict[str, object]) -> str:
         parts.append(f"network last 7 days {fmt_volume(history['net_bytes_7d'])}")
     if "disk_bytes_7d" in history:
         parts.append(f"disk I/O last 7 days {fmt_volume(history['disk_bytes_7d'])}")
-    return "; ".join(parts) + f" (Netdata, {history['source']})"
+    text = "; ".join(parts) + f" (Netdata chart `{history['chart']}`, {history['source']})"
+    if history.get("hidden_cpu"):
+        text += (f". The processes running now account for only {history['hidden_cpu']:.2f}% on average: most of this CPU is "
+                 "spent in short-lived processes it keeps starting (health checks, scripts, helpers), which a snapshot can't see")
+    return text
 
 
 def apply_netdata(groups: List[Group], netdata: NetdataHistory) -> None:
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         for group, history in zip(groups, pool.map(netdata.history_for, groups)):
             group.history = history
+            mark_hidden_cpu(group)
+
+
+def mark_hidden_cpu(group: Group) -> None:
+    """Note when Netdata's whole-unit CPU is far above what the live processes have used."""
+    avg = group.history.get("cpu_avg_7d") if group.history else None
+    if isinstance(avg, float) and group.history.get("source", "").startswith(("service", "container")) \
+            and avg >= 3 * group.cpu_avg and avg - group.cpu_avg >= 2:
+        group.history["hidden_cpu"] = round(group.cpu_avg, 2)
 
 
 def state_dir() -> str:
@@ -2460,7 +2486,9 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
     total, avail = meminfo.get("MemTotal", 0), meminfo.get("MemAvailable", 0)
     swap_used = meminfo.get("SwapTotal", 0) - meminfo.get("SwapFree", 0)
     print(style.bold(f"process-triage {VERSION}") + style.dim(" (read-only, nothing was changed)"))
-    print(f"Memory: {fmt_bytes(total - avail)} used of {fmt_bytes(total)}, swap used {fmt_bytes(swap_used)}. "
+    where = swap_summary(swap_devices())
+    print(f"Memory: {fmt_bytes(total - avail)} used of {fmt_bytes(total)}, swap used {fmt_bytes(swap_used)}"
+          + (f" ({where})" if where else "") + ". "
           f"{sum(len(g.procs) for g in groups)} processes in {len(groups)} programs.\n")
     shown = [g for g in groups if not args.mine or g.cls in ("yours", "optional")]
     shown = shown if args.all else shown[: args.top]
@@ -2483,6 +2511,8 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
         if group.history and "cpu_avg_7d" in group.history:
             h = group.history
             extra = f" · net {fmt_volume(h['net_bytes_7d'])}" if "net_bytes_7d" in h else ""
+            if h.get("hidden_cpu") is not None:
+                extra += " · mostly in short-lived processes"
             print(pad + "  " + style.dim(f"7 days: avg {h['cpu_avg_7d']:.2f}% CPU, busiest hour {h['cpu_peak_7d']:.1f}%{extra}"))
         if group.tip and (args.tips or group.cls != "core"):
             print(pad + "  " + style.cyan("tip: ") + style.dim(group.tip[: max(width - 30, 60)]))
@@ -2551,8 +2581,10 @@ def markdown_report(groups: List[Group], items: List[StartupItem], meminfo: Dict
     w(f"# What's running on {meta['host']}\n\n")
     w(f"Scanned {meta['time_text']} with process-triage {VERSION}. **Read-only: nothing was changed.** "
       "Commands below are suggestions for you to review.\n\n")
+    where = swap_summary(swap_devices())
     w(f"Memory in use: {fmt_bytes(total - avail)} of {fmt_bytes(total)}. Swap in use: "
-      f"{fmt_bytes(meminfo.get('SwapTotal', 0) - meminfo.get('SwapFree', 0))}. Desktop: {meta['desktop']}. Distro: {meta['distro']}.\n\n")
+      f"{fmt_bytes(meminfo.get('SwapTotal', 0) - meminfo.get('SwapFree', 0))}" + (f" ({where})" if where else "") +
+      f". Desktop: {meta['desktop']}. Distro: {meta['distro']}.\n\n")
     w("## Programs, biggest first\n\n")
     w("| # | Memory | CPU now | Avg CPU | Program | Installed via | Started by | Verdict |\n|---|---|---|---|---|---|---|---|\n")
     for index, g in enumerate(groups, 1):
@@ -2592,6 +2624,37 @@ def json_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str
         })
     return {"tool": "process-triage", "version": VERSION, "time": NOW, "meta": meta, "meminfo_kb": meminfo,
             "programs": programs, "startup": [asdict(i) for i in items]}
+
+
+def swap_devices(swaps_text: Optional[str] = None) -> List[Dict[str, object]]:
+    """Swap devices from /proc/swaps, marking zram (compressed RAM) with its real RAM cost."""
+    text = swaps_text if swaps_text is not None else (read_text("/proc/swaps") or "")
+    devices = []
+    for line in text.splitlines()[1:]:
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        name, kind, used_kb = fields[0], fields[1], int(fields[3]) if fields[3].isdigit() else 0
+        device = {"name": name, "type": kind, "used_kb": used_kb, "zram": os.path.basename(name).startswith("zram")}
+        if device["zram"]:
+            stat = (read_text(f"/sys/block/{os.path.basename(name)}/mm_stat") or "").split()
+            if len(stat) >= 3 and stat[2].isdigit():
+                device["ram_kb"] = int(stat[2]) // 1024
+        devices.append(device)
+    return devices
+
+
+def swap_summary(devices: List[Dict[str, object]]) -> str:
+    zram = [d for d in devices if d["zram"]]
+    disk = [d for d in devices if not d["zram"]]
+    parts = []
+    if zram:
+        used = sum(d["used_kb"] for d in zram)
+        ram = sum(d.get("ram_kb", 0) for d in zram)
+        parts.append(f"{fmt_bytes(used)} on zram (compressed RAM" + (f", really using {fmt_bytes(ram)} of RAM" if ram else "") + ")")
+    if disk:
+        parts.append(f"{fmt_bytes(sum(d['used_kb'] for d in disk))} on disk")
+    return ", ".join(parts)
 
 
 def read_meminfo() -> Dict[str, int]:
@@ -2688,6 +2751,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if netdata.connect():
             print(style.dim(f"Reading history from Netdata ({len(netdata.charts)} charts)…"), file=sys.stderr)
             apply_netdata(groups, netdata)
+            if netdata.errors:
+                print(style.dim(f"Netdata: {len(netdata.errors)} queries failed (first: {netdata.errors[0]})"), file=sys.stderr)
 
     if args.explain:
         explain(groups, args.explain, style)

@@ -443,6 +443,15 @@ class FullRunRegressions(unittest.TestCase):
             self.assertFalse(owners.is_manual("libdep0"))
 
 
+class SwapTests(unittest.TestCase):
+    def test_zram_and_disk_swap(self):
+        text = ("Filename Type Size Used Priority\n/dev/zram0 partition 16000000 14000000 100\n"
+                "/swap.img file 8000000 1000 -2\n")
+        summary = pt.swap_summary(pt.swap_devices(text))
+        self.assertIn("on zram (compressed RAM", summary)
+        self.assertIn("on disk", summary)
+
+
 class FourthRunRegressions(unittest.TestCase):
     def test_apt_history_uses_install_flags_and_first_date(self):
         with tempfile.TemporaryDirectory() as root:
@@ -571,6 +580,18 @@ class NetdataHistoryTests(unittest.TestCase):
         self.assertEqual(self.netdata.history_for(omni)["cpu_avg_7d"], 2.0)
         node = self.group(pt.Provenance(kind="npm-global", name="node"), [], [make_proc(4, 0, "node")])
         self.assertEqual(self.netdata.history_for(node), {})
+
+    def test_missing_charts_and_hidden_cpu_are_explained(self):
+        lone = self.group(pt.Provenance(kind="manual", name="mystery-tool"), [], [make_proc(5, 0, "mystery-tool")])
+        h = self.netdata.history_for(lone)
+        self.assertIn("`mystery-tool`", pt.history_text(h))
+        g = self.group(pt.Provenance(kind="system-package", name="netdata"),
+                       [pt.Launch("system-service", "x", unit="netdata.service", scope="system")], [make_proc(6, 0, "netdata")])
+        g.history = self.netdata.history_for(g)
+        g.cpu_avg = 1.0
+        pt.mark_hidden_cpu(g)
+        self.assertIn("short-lived", pt.history_text(g.history))
+        self.assertIn("systemd_netdata.cpu", pt.history_text(g.history))
 
     def test_unreachable_netdata_is_skipped(self):
         self.assertFalse(pt.NetdataHistory("http://127.0.0.1:9", timeout=0.5).connect())
