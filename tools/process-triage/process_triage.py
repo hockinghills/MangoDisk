@@ -40,7 +40,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.3.1"
+VERSION = "0.4.0"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -124,7 +124,11 @@ URL_CREDS = re.compile(r"(://)[^/\s:@]+(:[^/\s@]*)?@")
 LONG_TOKEN = re.compile(r"[A-Za-z0-9+_\-]{40,}")
 
 
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]+")
+
+
 def redact_text(text: str) -> str:
+    text = CONTROL_CHARS.sub(" ", text)
     text = URL_CREDS.sub(r"\1***@", text)
     return LONG_TOKEN.sub("***", text)
 
@@ -303,7 +307,7 @@ def snapshot(interval: float) -> List[Proc]:
     for name in os.listdir("/proc"):
         if name.isdigit() and int(name) != me:
             proc = read_proc(int(name), btime)
-            if proc:
+            if proc and not any(arg.endswith("process_triage.py") for arg in proc.cmdline[:3]):
                 procs[proc.pid] = proc
     if interval > 0:
         time.sleep(interval)
@@ -471,13 +475,31 @@ def project_dir(proc: Proc) -> Optional[str]:
     return cwd
 
 
+SYSTEM_BIN_DIRS = ("/usr/bin", "/usr/sbin", "/bin", "/sbin", "/usr/local/bin", "/usr/local/sbin")
+
+
+def system_which(name: str) -> Optional[str]:
+    """Find a command in the system directories first: other users' daemons rarely run from your PATH."""
+    if not name or "/" in name:
+        return None
+    for directory in SYSTEM_BIN_DIRS:
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate):
+            return realpath(candidate)
+    found = shutil.which(name)
+    return realpath(found) if found else None
+
+
 def resolve_target(proc: Proc) -> Target:
     argv0 = proc.cmdline[0] if proc.cmdline else ""
-    exe = proc.exe or (argv0 if argv0.startswith("/") else None)
-    if not exe and argv0 and "/" not in argv0 and " " not in argv0:
-        # Another user's process: the program file is hidden, but the command name usually resolves on PATH.
-        found = shutil.which(argv0)
-        exe = realpath(found) if found else None
+    first = argv0.split()[0].rstrip(":") if argv0.strip() else ""
+    exe = proc.exe
+    if not exe and first.startswith("/"):
+        # Another user's process: the program file is hidden, but argv[0] (resolved through
+        # symlinks such as /usr/local/bin/x -> /usr/bin/x) usually names it.
+        exe = realpath(first) if os.path.exists(first) else first
+    if not exe and first:
+        exe = system_which(first)
     names = [os.path.basename(exe or ""), os.path.basename(argv0), proc.comm]
     family = next((interpreter_family(n) for n in names if n and interpreter_family(n)), None)
     if family is None:
@@ -491,18 +513,18 @@ def resolve_target(proc: Proc) -> Target:
         target.module = value
     elif kind == "inline":
         target.inline = True
-    if target.path is None and kind == "none" and argv0 and "/" not in argv0 and exe and argv0.split()[0] != os.path.basename(exe):
-        # Node CLIs often overwrite argv with process.title; look the title up as a command name.
-        title = argv0.split()[0]
+    if target.path is None and kind == "none" and first and "/" not in first and exe and first != os.path.basename(exe):
+        # Node and Perl daemons often overwrite argv with a process title; look the title up as a command name.
+        title = first
         launched = env_value(proc.pid, "_")
         if launched and os.path.basename(launched) == title and os.path.exists(launched):
             target.path = realpath(launched)
             return target
         search = [os.path.dirname(exe), os.path.join(Paths.home, ".local/bin"), os.path.join(Paths.home, ".npm-global/bin"),
-                  os.path.join(Paths.home, ".bun/bin"), os.path.join(Paths.home, ".local/share/pnpm"), "/usr/local/bin", "/usr/bin"]
+                  os.path.join(Paths.home, ".bun/bin"), os.path.join(Paths.home, ".local/share/pnpm")] + list(SYSTEM_BIN_DIRS)
         for directory in search:
             candidate = os.path.join(directory, title)
-            if os.path.exists(candidate):
+            if os.path.isfile(candidate):
                 target.path = realpath(candidate)
                 break
     if target.path is None:
@@ -555,6 +577,7 @@ KIND_LABELS = {
     "volta": "volta",
     "npx-cache": "npx / pnpm dlx (download cache)",
     "project": "project folder",
+    "service": "service you added",
     "node-project": "node project",
     "homebrew": "Homebrew",
     "cargo": "cargo install",
@@ -674,6 +697,9 @@ class PackageOwners:
             return self._requested
         import gzip
         requested: Dict[str, Tuple[float, bool]] = {}
+        self.came_with: Dict[str, Tuple[float, str]] = {}
+        self.history_start: Optional[float] = None
+        transactions: List[Tuple[float, List[str], str, List[str]]] = []
         paths = sorted(glob.glob(self.apt_history_glob), reverse=True)
         for path in paths:
             try:
@@ -701,14 +727,41 @@ class PackageOwners:
                     # PackageKit (Discover) transactions carry no command line; skip pulled-in dependencies.
                     names = [name for name, detail in re.findall(r"([^\s,:]+)(?::[^\s,]+)? \(([^)]*)\)", fields["Install"])
                              if "automatic" not in detail]
-                # A transaction naming many packages is a desktop switch, release upgrade or script,
-                # not a sign that each one was picked by hand.
-                bulk = len(names) > 8
-                for name in names:
-                    if name not in requested or (requested[name][1] and not bulk):
-                        requested[name] = (when, bulk)
+                installed = [entry for entry, _ in re.findall(r"([^\s,:]+)(?::[^\s,]+)? \(([^)]*)\)", fields.get("Install", ""))]
+                origin = command or ("Discover/PackageKit" if fields.get("Requested-By") else "an automatic update")
+                transactions.append((when, names, origin, installed))
+        transactions.sort()
+        if transactions:
+            self.history_start = transactions[0][0]
+        times = [t[0] for t in transactions if t[1]]
+        for when, names, origin, installed in transactions:
+            # Many installs within minutes of each other is an install script, not someone picking packages.
+            burst = sum(1 for t in times if abs(t - when) <= 20 * 60) >= 6
+            # A transaction naming many packages is a desktop switch, release upgrade or script.
+            bulk = len(names) > 8 or burst
+            for name in names:
+                if name not in requested or (requested[name][1] and not bulk):
+                    requested[name] = (when, bulk)
+            for name in installed:
+                self.came_with[name] = (when, ("part of a burst of apt installs (an install script); " if burst else "") + origin)
         self._requested = requested
         return requested
+
+    def came_with_note(self, package: str) -> Optional[str]:
+        if self.manager != "dpkg":
+            return None
+        self._apt_history()
+        entry = self.came_with.get(package)
+        if not entry:
+            return None
+        when, origin = entry
+        return f"installed {fmt_date(when)} by `{redact_text(origin)[:140]}`"
+
+    def history_covers_install(self) -> bool:
+        """True when apt history reaches back to when this system was installed."""
+        self._apt_history()
+        installed = mtime("/var/log/installer") or mtime("/etc/machine-id")
+        return bool(self.history_start and installed and self.history_start <= installed + 3 * 86400)
 
     def requested_at(self, package: str) -> Optional[float]:
         entry = self._apt_history().get(package) if self.manager == "dpkg" else None
@@ -720,6 +773,12 @@ class PackageOwners:
             return True
         if self.manager == "dpkg" and DESKTOP_BUNDLED.match(package):
             return None  # most likely came with the desktop install, whatever apt-mark says
+        if self.manager == "dpkg" and entry:
+            return None  # named only in a bulk or scripted install
+        if self.manager == "dpkg" and package in self.came_with:
+            return False  # pulled in as a dependency of something else
+        if self.manager == "dpkg" and self.history_covers_install():
+            return None  # never asked for since the system was installed: it came with the system
         if self.manual is None:
             if self.manager == "dpkg" and shutil.which("apt-mark"):
                 self.manual = set(run(["apt-mark", "showmanual"], timeout=30).split())
@@ -1168,9 +1227,12 @@ class Classifier:
             pkg = self.owners.owner(path)
             if pkg:
                 asked = self.owners.requested_at(pkg)
+                manual = self.owners.is_manual(pkg)
+                came = self.owners.came_with_note(pkg)
                 return Provenance(
                     kind="system-package", name=pkg, location=pkg, installed_at=asked or self.owners.installed_at(pkg),
-                    date_note="you ran apt install" if asked else "install or last upgrade", manual=self.owners.is_manual(pkg),
+                    date_note="you ran apt install" if asked and manual else ("apt history" if asked else "install or last upgrade"),
+                    manual=manual, notes=[came] if came else [],
                     remove_hint=f"`{self.owners.front} {pkg}`" if self.owners.front else None,
                 )
         python = self.python_program(target)
@@ -1186,8 +1248,12 @@ class Classifier:
                               notes=["copied there by an install script or `make install`, not the package manager"])
         if path.startswith("/opt/"):
             top = "/".join(path.split("/")[:3])
-            return Provenance(kind="manual-opt", name=os.path.basename(top), location=top, installed_at=landed_at(path) or landed_at(top),
-                              date_note="folder date", remove_hint=f"not owned by any package; it lives in `{top}`")
+            installed, current = landed_at(top), landed_at(path)
+            notes = []
+            if installed and current and current - installed > 2 * 86400:
+                notes.append(f"the version running now dates from {fmt_date(current)} (updated in place)")
+            return Provenance(kind="manual-opt", name=os.path.basename(top), location=top, installed_at=installed or current,
+                              date_note="folder date", remove_hint=f"not owned by any package; it lives in `{top}`", notes=notes)
         if any(path.startswith(h + "/") for h in self.homes):
             name, version = program_name(path)
             return Provenance(kind="manual", name=name, version=version, location=path, installed_at=landed_at(path),
@@ -1396,6 +1462,7 @@ class Launch:
     scope: Optional[str] = None  # "user" | "system"
     desktop_name: Optional[str] = None
     parent_chain: List[str] = field(default_factory=list)
+    leaf: str = ""
 
 
 def parse_cgroup_launch(cg: str) -> Launch:
@@ -1438,7 +1505,9 @@ def parse_cgroup_launch(cg: str) -> Launch:
     if re.match(r"/user\.slice/user-\d+\.slice/session-[^/]+\.scope", cg):
         return Launch("login-session", "started directly by your login session")
     if cg.startswith("/system.slice/"):
-        unit = segments[1] if len(segments) > 1 else last
+        # Template units live in their own slice: /system.slice/system-cups.slice/cups.service
+        unit = next((seg for seg in reversed(segments) if seg.endswith((".service", ".scope", ".socket"))),
+                    segments[1] if len(segments) > 1 else last)
         if unit in ("cron.service", "cronie.service", "crond.service", "fcron.service"):
             return Launch("cron", "a cron job", unit=unit, scope="system")
         if unit.startswith(("docker-", "libpod-")):
@@ -1470,6 +1539,9 @@ def describe_parents(proc: Proc, table: Dict[int, Proc]) -> List[str]:
 
 def refine_launch(launch: Launch, proc: Proc, table: Dict[int, Proc], group_of: Dict[int, str]) -> Launch:
     launch.parent_chain = describe_parents(proc, table)
+    launch.leaf = proc.comm
+    if launch.kind == "cron" and proc.comm in ("cron", "crond", "cronie", "fcron"):
+        launch.kind, launch.detail = "system-service", f"system service `{launch.unit}`"
     chain = launch.parent_chain
     term = next((c for c in chain if c in TERMINALS or c.startswith("gnome-terminal")), None)
     mux = next((c for c in chain if c in MULTIPLEXERS or c.startswith("tmux")), None)
@@ -1549,6 +1621,33 @@ OPTIONAL_TIPS = {
     "cupsd": "Printing. Safe to disable if you never print: `sudo systemctl disable --now cups.service cups.socket`.",
 }
 
+PACKAGE_TIPS = {
+    "netdata": "Netdata monitoring agent, with its plugins counted here. Heavy for a desktop: often around 1 GB and a steady share of a CPU. `sudo systemctl disable --now netdata` if you don't watch its dashboard.",
+    "alloy": "Grafana Alloy telemetry collector: ships metrics and logs to a Grafana stack. Only needed if something reads that data.",
+    "clamav-daemon": "ClamAV scanner daemon: keeps its whole signature database (about 1 GB) in memory, mostly swapped out when idle. Not needed for occasional `clamscan` runs: `sudo systemctl disable --now clamav-daemon.service clamav-daemon.socket`.",
+    "clamav-freshclam": "ClamAV signature updater.",
+    "krdp": "KDE's remote-desktop (RDP) server: lets other machines connect to this desktop. Turn it off in System Settings > Remote Desktop if you don't use it.",
+    "geoclue-2.0": "The Geoclue *demo* agent: a sample program, not something the desktop needs. Safe to switch off in System Settings > Autostart.",
+    "postfix": "Postfix mail server. Postfix, Dovecot, OpenDKIM, greylisting and saslauthd together are a mail-hosting stack, often installed by a hosting control panel such as Virtualmin. Not needed on a desktop that doesn't receive mail.",
+    "dovecot-core": "Dovecot IMAP/POP3 mail server (part of a mail-hosting stack; see postfix).",
+    "opendkim": "Mail signing for a mail server (part of a mail-hosting stack; see postfix).",
+    "milter-greylist": "Spam greylisting for a mail server (part of a mail-hosting stack; see postfix).",
+    "postgrey": "Spam greylisting for a mail server (part of a mail-hosting stack; see postfix).",
+    "sasl2-bin": "Login checks for a mail server (part of a mail-hosting stack; see postfix).",
+    "proftpd-core": "ProFTPD FTP server.",
+    "minidlna": "MiniDLNA media server: shares media to TVs and players on your network.",
+    "snmpd": "SNMP agent: lets network monitoring tools poll this machine.",
+    "apache2-bin": "Apache web server.",
+    "nginx": "nginx web server / reverse proxy.",
+    "samba": "Samba Windows file sharing (smbd/nmbd).",
+    "modemmanager": "Manages mobile-broadband modems. Safe to disable if this machine has none.",
+    "cups-browsed": "Finds network printers automatically. Safe to disable if you add printers by hand.",
+    "spice-vdagent": "Only useful inside a virtual machine.",
+    "tailscale": "Tailscale VPN.",
+    "netbird": "NetBird VPN client.",
+    "lemonade-server": "Lemonade local-LLM server.",
+}
+
 IDLE_AVG_CPU = 0.2   # percent of one core since start
 IDLE_MIN_UPTIME = 6 * 3600
 HOG_KB = 150 * 1024
@@ -1620,36 +1719,108 @@ class Group:
         return NOW - self.oldest_start > IDLE_MIN_UPTIME and self.cpu_avg < IDLE_AVG_CPU and self.cpu_now < 0.5
 
 
-def fold_children(procs: List[Proc], table: Dict[int, Proc], provs: Dict[int, Provenance]) -> None:
+HELPER_PREFIXES = ("/usr/lib/", "/usr/lib64/", "/usr/libexec/", "/lib/", "/lib64/")
+CRON_UNITS = {"cron.service", "cronie.service", "crond.service", "fcron.service", "atd.service"}
+
+
+def _fold(proc: Proc, into: Provenance, provs: Dict[int, Provenance], folded: Set[int]) -> None:
+    note = f"includes child process `{proc.comm}` ({provs[proc.pid].name})"
+    if note not in into.notes and sum(n.startswith("includes child") for n in into.notes) < 8:
+        into.notes.append(note)
+    provs[proc.pid] = into
+    folded.add(proc.pid)
+
+
+def fold_by_cgroup(procs: List[Proc], provs: Dict[int, Provenance], targets: Dict[int, Target], folded: Set[int]) -> None:
+    """Everything a systemd service runs belongs to that service's program (netdata and its
+    plugins, postfix and its workers); app scopes keep only their library helper processes."""
+    members: Dict[str, List[Proc]] = {}
+    for proc in procs:
+        if proc.cgroup:
+            members.setdefault(proc.cgroup, []).append(proc)
+    for cgroup, group in members.items():
+        if len(group) < 2:
+            continue
+        last = cgroup.rstrip("/").split("/")[-1]
+        service = last.endswith(".service") and not last.startswith("user@") and last not in CRON_UNITS
+        app_scope = last.startswith("app-") and last.endswith(".scope")
+        if not (service or app_scope) or last.startswith(("docker-", "libpod-")):
+            continue
+        anchor = min(group, key=lambda p: (p.start_epoch, p.pid))
+        anchor_names = {anchor.comm, os.path.basename(anchor.exe or "")}
+        if anchor_names & (TERMINALS | MULTIPLEXERS | IDES | SHELLS | ROOT_PARENTS):
+            continue  # a terminal or editor service runs whatever you start inside it
+        into = provs[anchor.pid]
+        if into.kind == "container":
+            continue
+        for proc in group:
+            if proc is anchor or provs[proc.pid].key == into.key:
+                continue
+            path = proc.exe or (targets[proc.pid].path or "")
+            if service or path.startswith(HELPER_PREFIXES):
+                _fold(proc, into, provs, folded)
+
+
+def fold_children(procs: List[Proc], table: Dict[int, Proc], provs: Dict[int, Provenance],
+                  targets: Optional[Dict[int, Target]] = None, folded: Optional[Set[int]] = None) -> None:
     """Count helper tools (sleep, curl, ffmpeg...) against the side-installed program that started them."""
+    folded = folded if folded is not None else set()
     for proc in sorted(procs, key=lambda p: p.start_epoch):
         parent = table.get(proc.ppid)
         if not parent or provs[proc.pid].kind != "system-package" or proc.comm in SHELLS:
             continue
         parent_prov = provs.get(parent.pid)
-        helper = bool(proc.exe) and proc.exe.startswith(("/usr/lib/", "/usr/lib64/", "/usr/libexec/", "/lib/")) \
-            or provs[proc.pid].name.startswith("lib")
+        path = proc.exe or ((targets or {}).get(proc.pid).path if targets and targets.get(proc.pid) else "") or ""
+        helper = path.startswith(HELPER_PREFIXES) or provs[proc.pid].name.startswith("lib")
         own_app = parent.comm not in ROOT_PARENTS and parent.comm not in SHELLS and parent.comm not in TERMINALS and parent.pid != 1
         if parent_prov and parent_prov.kind != "container" and (parent_prov.kind in SIDE_INSTALL_KINDS or (helper and own_app)):
-            note = f"includes child process `{proc.comm}` ({provs[proc.pid].name})"
-            if note not in parent_prov.notes and len(parent_prov.notes) < 12:
-                parent_prov.notes.append(note)
-            provs[proc.pid] = parent_prov
+            _fold(proc, parent_prov, provs, folded)
 
 
-def build_groups(procs: List[Proc], classifier: Classifier) -> List[Group]:
+def name_service_rows(procs: List[Proc], provs: Dict[int, Provenance], launches: Dict[int, Launch], unit_info) -> None:
+    """A distro program (ssh, cloudflared, python...) run by a service you added is that service:
+    show it as its own row named after the unit instead of merging it with every other use of the binary."""
+    renamed: Dict[str, Provenance] = {}
+    for proc in procs:
+        prov, launch = provs[proc.pid], launches[proc.pid]
+        if prov.kind not in ("system-package", "unknown") or launch.kind not in ("user-service", "system-service") or not launch.unit:
+            continue
+        details = unit_info(launch.scope, launch.unit)
+        origin = details.get("origin", "")
+        if not origin or origin.startswith(("from package", "generated", "unknown", "created by snapd")):
+            continue
+        stem = re.sub(r"\.service$", "", launch.unit)
+        if stem in (prov.name, proc.comm, os.path.basename(proc.exe or "")):
+            continue
+        if launch.unit not in renamed:
+            program = "unknown program" if prov.kind == "unknown" else f"`{proc.comm}` from package `{prov.name}`"
+            renamed[launch.unit] = Provenance(
+                kind="service", name=stem, location=f"unit:{launch.scope}:{launch.unit}",
+                installed_at=mtime(details.get("file")), date_note="unit file date",
+                notes=[f"runs {program}", f"service file `{Paths.show(details.get('file'))}` ({origin})"],
+                remove_hint=f"this is the service; the program itself comes from {prov.name if prov.kind != 'unknown' else 'elsewhere'}",
+            )
+        provs[proc.pid] = renamed[launch.unit]
+
+
+def build_groups(procs: List[Proc], classifier: Classifier, unit_info=None) -> List[Group]:
     table = {p.pid: p for p in procs}
     targets = {p.pid: resolve_target(p) for p in procs}
     classifier.owners.lookup_many(
         path for t in targets.values() for path in (t.path, t.interpreter) if is_system_path(path)
     )
     provs = {p.pid: classifier.classify(p, targets[p.pid]) for p in procs}
-    fold_children(procs, table, provs)
+    folded: Set[int] = set()
+    fold_children(procs, table, provs, targets, folded)
+    fold_by_cgroup(procs, provs, targets, folded)
     group_of = {pid: prov.key for pid, prov in provs.items()}
+    launches = {p.pid: refine_launch(parse_cgroup_launch(p.cgroup), p, table, group_of) for p in procs}
+    if unit_info:
+        name_service_rows(procs, provs, launches, unit_info)
     groups: Dict[str, Group] = {}
     for proc in procs:
         prov = provs[proc.pid]
-        launch = refine_launch(parse_cgroup_launch(proc.cgroup), proc, table, group_of)
+        launch = launches[proc.pid]
         group = groups.get(prov.key)
         if not group:
             group = groups[prov.key] = Group(key=prov.key, name=prov.name, prov=prov, procs=[], launches=[], targets=[])
@@ -1667,10 +1838,14 @@ def build_groups(procs: List[Proc], classifier: Classifier) -> List[Group]:
         uptime = max(NOW - group.oldest_start, 1)
         group.cpu_avg = group.cpu_seconds / uptime * 100
         comm = group.procs[0].comm
-        every = {p.comm for p in group.procs} | {os.path.basename(p.exe) for p in group.procs if p.exe} | \
-            {os.path.basename(p.cmdline[0]) for p in group.procs if p.cmdline and p.cmdline[0]}
+        # Only the group's own processes say what it is; folded children (a netdata plugin
+        # named systemd-journal.plugin, say) must not make it look like part of the system.
+        own = [p for p in group.procs if p.pid not in folded] or group.procs
+        every = {p.comm for p in own} | {os.path.basename(p.exe) for p in own if p.exe} | \
+            {os.path.basename(p.cmdline[0]) for p in own if p.cmdline and p.cmdline[0]}
         group.cls = safety_class(group.name, every, group.prov, {l.kind for l in group.launches})
-        group.tip = OPTIONAL_TIPS.get(group.name) or next((OPTIONAL_TIPS[n] for n in sorted(every) if n in OPTIONAL_TIPS), None)
+        group.tip = OPTIONAL_TIPS.get(group.name) or next((OPTIONAL_TIPS[n] for n in sorted(every) if n in OPTIONAL_TIPS), None) \
+            or (PACKAGE_TIPS.get(group.prov.name) if group.prov.kind == "system-package" else None)
         if group.prov.kind == "system-package" and group.name != comm and len({p.comm for p in group.procs}) == 1:
             group.name = f"{comm} ({group.prov.name})"
         if any(p.exe_deleted for p in group.procs):
@@ -1734,6 +1909,8 @@ def find_unit_file(scope: str, name: str, home: str) -> str:
 def unit_origin(fragment: str, owners: PackageOwners, home: str) -> str:
     if not fragment:
         return "unknown"
+    if os.path.basename(fragment).startswith("snap."):
+        return "created by snapd for a snap"
     if fragment.startswith(home + "/"):
         return "added in your home folder (by you or an install script)"
     if fragment.startswith(("/run/", "/tmp/")):
@@ -1742,6 +1919,8 @@ def unit_origin(fragment: str, owners: PackageOwners, home: str) -> str:
         return f"from package {owners.owner(fragment)}"
     if fragment.startswith("/etc/"):
         return "added to /etc by an install script (no package owns it)"
+    if fragment.startswith(("/usr/lib/", "/lib/")):
+        return "not owned by any package (possibly left behind by a removed package)"
     return "not owned by any package"
 
 
@@ -1906,6 +2085,7 @@ def startup_inventory(owners: PackageOwners, user: str, home: str) -> List[Start
 
 
 def link_startup(items: List[StartupItem], groups: List[Group]) -> None:
+    """Mark which startup items are running now, and give running programs the startup item's off switch."""
     by_unit: Dict[str, Group] = {}
     by_desktop: Dict[str, Group] = {}
     by_basename: Dict[str, Group] = {}
@@ -1938,6 +2118,8 @@ def link_startup(items: List[StartupItem], groups: List[Group]) -> None:
                     break
         if group:
             item.running = f"{group.name} ({fmt_bytes(group.mem_kb)})"
+            if item.off_hint and item.enabled and item.off_hint not in (group.disable_hint or ""):
+                group.disable_hint = "; ".join(filter(None, [group.disable_hint, f"{item.off_hint} (startup entry `{item.name}`)"]))
 
 
 # ---------------------------------------------------------------------------
@@ -1959,20 +2141,23 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
                 "source": details.get("SourcePath", ""),
                 "triggered_by": details.get("TriggeredBy", ""),
             }
-        if launch.kind == "user-service":
-            stops.append(f"`systemctl --user stop {launch.unit}`")
-            disables.append(f"`systemctl --user disable --now {launch.unit}`")
+        if launch.kind in ("user-service", "system-service"):
+            ctl = "systemctl --user" if launch.kind == "user-service" else "sudo systemctl"
+            stops.append(f"`{ctl} stop {launch.unit}`")
+            if details.get("UnitFileState") in ("static", "indirect"):
+                # Static units have no [Install] section and are started on demand; disable does nothing.
+                disables.append(f"`{ctl} mask --now {launch.unit}` (it starts on demand, so it has to be masked; undo with `unmask`)")
+            else:
+                disables.append(f"`{ctl} disable --now {launch.unit}`")
             if details.get("TriggeredBy"):
-                disables.append(f"also disable its trigger `{details['TriggeredBy']}`")
-        elif launch.kind == "system-service":
-            stops.append(f"`sudo systemctl stop {launch.unit}`")
-            disables.append(f"`sudo systemctl disable --now {launch.unit}`")
-            if details.get("TriggeredBy"):
-                disables.append(f"also `sudo systemctl disable {details['TriggeredBy']}`")
+                disables.append(f"also `{ctl} disable --now {details['TriggeredBy']}`")
         elif launch.kind == "autostart":
             source = details.get("SourcePath") or ""
-            where = f"`{Paths.show(source)}`" if source else f"the `{launch.desktop_name}` entry"
-            disables.append(f"System Settings > Autostart, or remove {where}")
+            if source.startswith(home + "/"):
+                disables.append(f"System Settings > Autostart, or delete `{Paths.show(source)}`")
+            else:
+                disables.append("System Settings > Autostart (switch it off there; that writes a `Hidden=true` override in "
+                                "`~/.config/autostart` that survives updates; don't delete the file in /etc)")
         elif launch.kind == "cron":
             disables.append("`crontab -e` (or check /etc/cron.d) and remove the job")
         elif launch.kind == "container":
@@ -1993,7 +2178,10 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
     elif group.cls == "core":
         group.verdict = "keep: part of the desktop or system"
     elif group.cls == "optional":
-        group.verdict = ("optional, and idle" if group.idle else "optional") + ("; see tip" if group.tip else "")
+        group.verdict = ("optional, idle and big" if group.idle and big else "optional, and idle" if group.idle else "optional") \
+            + ("; see tip" if group.tip else "")
+    elif group.cls == "system" and group.tip:
+        group.verdict = ("idle and big; see tip" if group.idle and big else "system service; see tip")
     elif group.cls == "system":
         group.verdict = "system component; leave it unless you know you don't need it"
     elif group.idle and big:
@@ -2090,7 +2278,7 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
         elif group.cls == "yours":
             verdict = style.yellow(verdict)
         print(pad + "→ " + verdict)
-        if group.tip and (args.tips or group.cls in ("optional", "yours")):
+        if group.tip and (args.tips or group.cls != "core"):
             print(pad + "  " + style.cyan("tip: ") + style.dim(group.tip[: max(width - 30, 60)]))
     hidden = len(groups) - len(shown)
     if hidden > 0:
@@ -2141,9 +2329,9 @@ def markdown_report(groups: List[Group], items: List[StartupItem], meminfo: Dict
         for note in p.notes:
             w(f"- {note}\n")
         w(f"- **Started by:** " + "; ".join(l.detail for l in g.launches) + "\n")
-        chains = {" › ".join(reversed(l.parent_chain)) for l in g.launches if l.parent_chain}
-        for chain in list(chains)[:3]:
-            w(f"  - process tree: {chain} › {g.procs[0].comm}\n")
+        chains = {" › ".join(list(reversed(l.parent_chain)) + [l.leaf or g.procs[0].comm]) for l in g.launches if l.parent_chain}
+        for chain in sorted(chains)[:3]:
+            w(f"  - process tree: {chain}\n")
         for unit, info in g.unit_files.items():
             w(f"  - `{unit}`: {info['state'] or 'transient'}, file `{Paths.show(info['file'])}` ({info['origin']})\n")
         for mention in g.mentions:
@@ -2258,15 +2446,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     procs = snapshot(args.interval)
     owners = PackageOwners()
     classifier = Classifier(owners, homes)
-    groups = build_groups(procs, classifier)
-
-    lines = rc_lines(home, user)
-    user_units = sorted({l.unit for g in groups for l in g.launches if l.scope == "user" and l.unit})
-    system_units = sorted({l.unit for g in groups for l in g.launches if l.scope == "system" and l.unit})
-    user_details = unit_details("user", user_units, user)
-    system_details = unit_details("system", system_units, user)
+    # Unit details are needed while grouping (service rows) and later for hints.
+    units = {"user": set(), "system": set()}
+    for proc in procs:
+        launch = parse_cgroup_launch(proc.cgroup)
+        if launch.unit and launch.scope in units:
+            units[launch.scope].add(launch.unit)
+    user_details = unit_details("user", sorted(units["user"]), user)
+    system_details = unit_details("system", sorted(units["system"]), user)
     owners.lookup_many(d.get("FragmentPath", "") for d in list(user_details.values()) + list(system_details.values())
                        if d.get("FragmentPath", "").startswith(SYSTEM_PREFIXES))
+
+    def unit_info(scope: str, unit: str) -> Dict[str, str]:
+        details = (user_details if scope == "user" else system_details).get(unit, {})
+        fragment = details.get("FragmentPath", "") or find_unit_file(scope, unit, home)
+        return {"file": fragment, "origin": unit_origin(fragment, owners, home) if fragment else ""}
+
+    groups = build_groups(procs, classifier, unit_info)
+    lines = rc_lines(home, user)
     for group in groups:
         group.mentions = find_mentions(group, lines) if group.cls in ("yours", "optional") else []
         finish_group(group, user_details, system_details, owners, home)

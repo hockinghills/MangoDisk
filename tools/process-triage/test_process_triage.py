@@ -315,7 +315,7 @@ class SecondScanRegressions(unittest.TestCase):
             self.assertTrue(owners.is_manual("ptyxis"))
             self.assertTrue(owners.is_manual("google-chrome-stable"))
             self.assertTrue(owners.is_manual("netbird-ui"))
-            self.assertIsNone(owners.is_manual("libayatana"))
+            self.assertFalse(owners.is_manual("libayatana"))  # pulled in automatically: a dependency
             self.assertIsNone(owners.is_manual("dolphin"))
             self.assertIsNotNone(owners.requested_at("ptyxis"))
 
@@ -336,6 +336,108 @@ class SecondScanRegressions(unittest.TestCase):
         self.assertEqual(pt.interpreter_family("gjs"), "gjs")
         self.assertEqual(pt.find_script("gjs", ["-I", "/opt/x/lib", "/opt/Surfshark/surfsharkd.js"], None),
                          ("path", "/opt/Surfshark/surfsharkd.js"))
+
+
+class FullRunRegressions(unittest.TestCase):
+    """Cases from running --all, sudo, --explain and the full report on a real desktop."""
+
+    def test_other_users_argv0_resolves_through_symlinks(self):
+        with tempfile.TemporaryDirectory() as root:
+            real = os.path.join(root, "usr-bin-cloudflared")
+            open(real, "w").close()
+            link = os.path.join(root, "local-cloudflared")
+            os.symlink(real, link)
+            proc = make_proc(60, 1, "cloudflared", cmdline=[link, "tunnel", "run"], exe=None)
+            self.assertEqual(pt.resolve_target(proc).path, real)
+
+    def test_process_title_with_arguments(self):
+        proc = make_proc(61, 1, "sh", cmdline=["sh --inet"], exe=None)
+        self.assertTrue(pt.resolve_target(proc).path.endswith("/sh") or pt.resolve_target(proc).path.endswith("dash"))
+
+    def test_template_slice_unit(self):
+        self.assertEqual(pt.parse_cgroup_launch("/system.slice/system-cups.slice/cups.service").unit, "cups.service")
+        self.assertEqual(pt.parse_cgroup_launch("/system.slice/system-postgresql.slice/postgresql@17-main.service").unit,
+                         "postgresql@17-main.service")
+
+    def test_cron_daemon_is_a_service(self):
+        cron = make_proc(62, 1, "cron", cgroup="/system.slice/cron.service")
+        launch = pt.refine_launch(pt.parse_cgroup_launch(cron.cgroup), cron, {62: cron}, {})
+        self.assertEqual(launch.kind, "system-service")
+
+    def test_control_characters_are_flattened(self):
+        self.assertNotIn("\n", " ".join(pt.redact_argv(["python", "-c", "import x\n# comment\nrun()"])))
+
+    def test_service_cgroup_folds_plugins_but_not_terminal_children(self):
+        cg = "/system.slice/netdata.service"
+        main = make_proc(70, 1, "netdata", cgroup=cg, exe="/usr/sbin/netdata")
+        plugin = make_proc(71, 70, "sd-jrnl.plugin", cgroup=cg, exe="/usr/libexec/netdata/plugins.d/systemd-journal.plugin")
+        plugin.start_epoch = 5
+        term_cg = USER + "/app.slice/app-org.kde.konsole@abc.service"
+        konsole = make_proc(80, 1, "konsole", cgroup=term_cg, exe="/usr/bin/konsole")
+        vim = make_proc(81, 80, "vim", cgroup=term_cg, exe="/usr/bin/vim")
+        vim.start_epoch = 5
+        provs = {70: pt.Provenance(kind="system-package", name="netdata"),
+                 71: pt.Provenance(kind="system-package", name="netdata-plugin-systemd-journal"),
+                 80: pt.Provenance(kind="system-package", name="konsole"),
+                 81: pt.Provenance(kind="system-package", name="vim")}
+        targets = {pid: pt.Target(family=None, path=None) for pid in provs}
+        folded = set()
+        pt.fold_by_cgroup([main, plugin, konsole, vim], provs, targets, folded)
+        self.assertEqual(provs[71].name, "netdata")
+        self.assertEqual(provs[81].name, "vim")
+        self.assertEqual(folded, {71})
+        # The folded plugin's name must not make netdata look like part of the system.
+        self.assertEqual(pt.safety_class("netdata", {"netdata"}, provs[70], {"system-service"}), "system")
+
+    def test_app_scope_folds_only_library_helpers(self):
+        cg = USER + "/app.slice/app-org.kde.dolphin-42.scope"
+        dolphin = make_proc(90, 1, "dolphin", cgroup=cg, exe="/usr/bin/dolphin")
+        worker = make_proc(91, 90, "kioworker", cgroup=cg, exe="/usr/lib/x86_64-linux-gnu/libexec/kf6/kioworker")
+        opened = make_proc(92, 90, "okular", cgroup=cg, exe="/usr/bin/okular")
+        worker.start_epoch = opened.start_epoch = 5
+        provs = {90: pt.Provenance(kind="system-package", name="dolphin"), 91: pt.Provenance(kind="system-package", name="kio6"),
+                 92: pt.Provenance(kind="system-package", name="okular")}
+        pt.fold_by_cgroup([dolphin, worker, opened], provs, {pid: pt.Target(family=None, path=None) for pid in provs}, set())
+        self.assertEqual((provs[91].name, provs[92].name), ("dolphin", "okular"))
+
+    def test_service_you_added_gets_its_own_row(self):
+        ssh = make_proc(100, 1, "ssh", cgroup=USER + "/app.slice/mitmproxy-capture-ui-tunnel.service", exe="/usr/bin/ssh")
+        tunnel = make_proc(101, 1, "cloudflared", cgroup="/system.slice/cloudflared.service", exe="/usr/bin/cloudflared")
+        provs = {100: pt.Provenance(kind="system-package", name="openssh-client"),
+                 101: pt.Provenance(kind="system-package", name="cloudflared")}
+        launches = {p.pid: pt.parse_cgroup_launch(p.cgroup) for p in (ssh, tunnel)}
+        info = lambda scope, unit: {"file": f"/home/u/.config/systemd/user/{unit}", "origin": "added in your home folder"}
+        pt.name_service_rows([ssh, tunnel], provs, launches, info)
+        self.assertEqual((provs[100].kind, provs[100].name), ("service", "mitmproxy-capture-ui-tunnel"))
+        self.assertEqual(provs[101].name, "cloudflared")
+
+    def test_static_units_are_masked_and_package_autostart_is_overridden(self):
+        prov = pt.Provenance(kind="system-package", name="evolution-data-server")
+        group = pt.Group(key="k", name="eds", prov=prov, procs=[make_proc(110, 1, "evolution-sourc")], targets=[],
+                         launches=[pt.Launch("user-service", "x", unit="evolution-source-registry.service", scope="user"),
+                                   pt.Launch("autostart", "y", unit="app-kup@autostart.service", scope="user", desktop_name="kup")])
+        details = {"evolution-source-registry.service": {"UnitFileState": "static"},
+                   "app-kup@autostart.service": {"SourcePath": "/etc/xdg/autostart/kup-daemon.desktop"}}
+        owners = pt.PackageOwners()
+        owners.manager = None
+        pt.finish_group(group, details, {}, owners, "/home/u")
+        self.assertIn("mask --now evolution-source-registry.service", group.disable_hint)
+        self.assertIn("System Settings > Autostart", group.disable_hint)
+        self.assertNotIn("remove `/etc/xdg", group.disable_hint)
+
+    def test_install_script_bursts_are_not_hand_picked(self):
+        with tempfile.TemporaryDirectory() as root:
+            log = os.path.join(root, "history.log")
+            blocks = [f"Start-Date: 2026-09-18  10:{minute:02d}:00\nCommandline: apt-get -y install {name}\n"
+                      f"Install: {name}:amd64 (1.0), libdep{minute}:amd64 (1.0, automatic)\nEnd-Date: x\n"
+                      for minute, name in zip(range(0, 14, 2), ["postfix", "dovecot-core", "opendkim", "proftpd-core", "snmpd", "apache2", "nginx"])]
+            with open(log, "w") as handle:
+                handle.write("\n".join(blocks))
+            owners = pt.PackageOwners()
+            owners.manager, owners.apt_history_glob, owners.manual = "dpkg", log, set()
+            self.assertIsNone(owners.is_manual("postfix"))
+            self.assertIn("burst", owners.came_with_note("postfix"))
+            self.assertFalse(owners.is_manual("libdep0"))
 
 
 if __name__ == "__main__":
