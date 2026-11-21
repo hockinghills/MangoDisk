@@ -3,10 +3,13 @@
 Run with: python3 -m unittest discover -s tools/process-triage
 """
 
+import http.server
 import json
 import os
 import tempfile
+import threading
 import unittest
+import urllib.parse
 
 import process_triage as pt
 
@@ -500,6 +503,77 @@ class FourthRunRegressions(unittest.TestCase):
     def test_unit_notes(self):
         self.assertIn("cloud", pt.unit_note("cloud-init-local.service"))
         self.assertEqual(pt.unit_note("NetworkManager.service"), "")
+
+
+class FakeNetdata(http.server.BaseHTTPRequestHandler):
+    charts = ["system.cpu", "systemd_netdata.cpu", "systemd_netdata.io", "cgroup_datahub-opensearch-1.cpu",
+              "cgroup_datahub-opensearch-1.net_eth0", "cgroup_datahub-opensearch-1.net_drops_eth0", "app.omniroute_cpu_utilization"]
+    values = {"systemd_netdata.cpu": [20.0, 10.0], "systemd_netdata.io": [100.0, 28.0],
+              "cgroup_datahub-opensearch-1.cpu": [1.0, 0.5], "cgroup_datahub-opensearch-1.net_eth0": [8.0, 8.0],
+              "cgroup_datahub-opensearch-1.net_drops_eth0": [999.0], "app.omniroute_cpu_utilization": [2.0, 0.0]}
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        url = urllib.parse.urlparse(self.path)
+        query = dict(urllib.parse.parse_qsl(url.query))
+        if url.path == "/api/v1/charts":
+            body = {"charts": {c: {} for c in self.charts}}
+        elif url.path == "/api/v1/chart":
+            body = {"first_entry": 1700000000, "last_entry": 1800000000}
+        elif url.path == "/api/v1/data":
+            points = int(query["points"])
+            row = self.values.get(query["chart"], [0.0])
+            body = {"labels": ["time"] + ["d"] * len(row), "data": [[i] + row for i in range(points)]}
+        else:
+            self.send_response(404)
+            self.end_headers()
+            return
+        data = json.dumps(body).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+
+class NetdataHistoryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = http.server.HTTPServer(("127.0.0.1", 0), FakeNetdata)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.netdata = pt.NetdataHistory(f"http://127.0.0.1:{cls.server.server_port}")
+        assert cls.netdata.connect()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    def group(self, prov, launches, procs):
+        return pt.Group(key="k", name=prov.name, prov=prov, procs=procs, targets=[], launches=launches)
+
+    def test_service_history(self):
+        g = self.group(pt.Provenance(kind="system-package", name="netdata"),
+                       [pt.Launch("system-service", "x", unit="netdata.service", scope="system")], [make_proc(1, 0, "netdata")])
+        h = self.netdata.history_for(g)
+        self.assertEqual(h["cpu_avg_7d"], 30.0)
+        self.assertAlmostEqual(h["disk_bytes_7d"], 128 * 1024 * 7 * 86400, delta=1)
+        self.assertIn("netdata.service", pt.history_text(h))
+
+    def test_container_network_ignores_drop_counters(self):
+        g = self.group(pt.Provenance(kind="container", name="datahub-opensearch-1"), [], [make_proc(2, 0, "java")])
+        h = self.netdata.history_for(g)
+        self.assertEqual(h["cpu_avg_30d"], 1.5)
+        self.assertAlmostEqual(h["net_bytes_7d"], 16 * 1000 / 8 * 7 * 86400, delta=1)
+
+    def test_program_groups_skip_generic_names(self):
+        omni = self.group(pt.Provenance(kind="npm-global", name="omniroute"), [], [make_proc(3, 0, "node-MainThread")])
+        self.assertEqual(self.netdata.history_for(omni)["cpu_avg_7d"], 2.0)
+        node = self.group(pt.Provenance(kind="npm-global", name="node"), [], [make_proc(4, 0, "node")])
+        self.assertEqual(self.netdata.history_for(node), {})
+
+    def test_unreachable_netdata_is_skipped(self):
+        self.assertFalse(pt.NetdataHistory("http://127.0.0.1:9", timeout=0.5).connect())
 
 
 if __name__ == "__main__":

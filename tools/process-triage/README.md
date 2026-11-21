@@ -51,6 +51,15 @@ Each run saves a Markdown report and a JSON snapshot to `~/.local/state/process-
 days and the report starts showing how often each program has been seen running ("running in 5 of 6 scans
 since ..."). That stands in for "last used", which Linux mostly doesn't record. Use `--no-save` to skip it.
 
+## History from Netdata
+
+If a Netdata agent is running on the machine (it listens on `http://localhost:19999` by default), each row
+also shows what the program did over the last 7 and 30 days: average CPU and the busiest hour, network traffic
+for containers, and disk I/O for system services. The numbers come from Netdata's own charts for the systemd
+service, the container, or (for anything else) every process with that program's name, and the report says
+which. Use `--netdata URL` for a different agent and `--no-netdata` to skip it. Only Netdata's read-only query API
+is used.
+
 ## Privacy
 
 Everything stays on your machine. Before anything is printed or saved, command-line values that look like

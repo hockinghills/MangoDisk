@@ -37,10 +37,12 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -1635,8 +1637,8 @@ OPTIONAL_TIPS = {
 }
 
 PACKAGE_TIPS = {
-    "netdata": "Netdata monitoring agent, with its plugins counted here. Heavy for a desktop: often around 1 GB and a steady share of a CPU. `sudo systemctl disable --now netdata` if you don't watch its dashboard.",
-    "alloy": "Grafana Alloy telemetry collector: ships metrics and logs to a Grafana stack. Only needed if something reads that data.",
+    "netdata": "Netdata monitoring agent: per-second metrics for the whole machine, a local dashboard at http://localhost:19999, and the history this report's 'over time' numbers come from. Its plugins are counted in this row.",
+    "alloy": "Grafana Alloy telemetry collector: gathers metrics, logs and traces and ships them to a Grafana stack (Prometheus/Mimir, Loki, Grafana Cloud). Its config is in the path on its command line or in /etc/default/alloy.",
     "clamav-daemon": "ClamAV scanner daemon: keeps its whole signature database (about 1 GB) in memory, mostly swapped out when idle. Not needed for occasional `clamscan` runs: `sudo systemctl disable --now clamav-daemon.service clamav-daemon.socket`.",
     "clamav-freshclam": "ClamAV signature updater.",
     "krdp": "KDE's remote-desktop (RDP) server: lets other machines connect to this desktop. Turn it off in System Settings > Remote Desktop if you don't use it.",
@@ -1751,6 +1753,7 @@ class Group:
     tip: Optional[str] = None
     verdict: str = ""
     seen: Optional[str] = None
+    history: Dict[str, object] = field(default_factory=dict)
     stop_hint: Optional[str] = None
     disable_hint: Optional[str] = None
     unit_files: Dict[str, Dict[str, str]] = field(default_factory=dict)
@@ -2028,6 +2031,13 @@ class StartupItem:
     off_hint: str = ""
 
 
+def redact_exec(command: str) -> str:
+    try:
+        return " ".join(redact_argv(shlex.split(command)))
+    except ValueError:
+        return redact_text(command)
+
+
 def parse_desktop(path: str) -> Dict[str, str]:
     values: Dict[str, str] = {}
     in_entry = False
@@ -2103,7 +2113,7 @@ def startup_inventory(owners: PackageOwners, user: str, home: str) -> List[Start
             hint = ("System Settings > Autostart, or delete " + f"`{Paths.show(path)}`") if kind == "autostart" else \
                 f"System Settings > Autostart (it writes a `Hidden=true` copy to `~/.config/autostart/{base}`)"
             items.append(StartupItem(
-                kind=kind, name=values.get("Name") or base[:-8], location=path, command=redact_text(values.get("Exec", "")),
+                kind=kind, name=values.get("Name") or base[:-8], location=path, command=redact_exec(values.get("Exec", "")),
                 enabled=enabled, origin=origin, third_party=kind == "autostart" or "no package" in origin, off_hint=hint,
             ))
     for pattern in (".config/plasma-workspace/env/*", ".config/autostart-scripts/*", ".config/plasma-workspace/shutdown/*"):
@@ -2230,7 +2240,7 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
             + ("; see tip" if group.tip else "")
     elif group.cls == "system" and group.tip:
         group.verdict = ("idle and big; see tip" if group.idle and big else "system service; see tip")
-    elif group.cls == "system" and NOW - group.oldest_start < 120 and {l.kind for l in group.launches} <= {"terminal", "ssh", "child"}:
+    elif group.cls == "system" and NOW - group.oldest_start < 120 and {l.kind for l in group.launches} <= {"terminal", "ssh", "child"} and {l.kind for l in group.launches} & {"terminal", "ssh"}:
         group.verdict = "a command you just started in a terminal"
     elif group.cls == "system" and "widget" in {l.kind for l in group.launches}:
         group.verdict = "run by a Plasma widget" + (f"; costs {group.cpu_avg:.1f}% CPU on average" if group.cpu_avg >= 1 else "")
@@ -2240,12 +2250,150 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
         group.verdict = "IDLE HOG: big and doing nothing; good candidate to stop or disable"
     elif group.idle:
         group.verdict = "idle; candidate if you don't recognize it"
-    elif NOW - group.oldest_start < 120 and {l.kind for l in group.launches} <= {"terminal", "ssh", "child"}:
+    elif NOW - group.oldest_start < 120 and {l.kind for l in group.launches} <= {"terminal", "ssh", "child"} and {l.kind for l in group.launches} & {"terminal", "ssh"}:
         group.verdict = "a command you just started in a terminal"
     elif group.cpu_now >= 25:
         group.verdict = f"busy right now ({group.cpu_now:.0f}% CPU)"
     else:
         group.verdict = "active"
+
+
+GENERIC_APP_NAMES = {"node", "nodejs", "java", "python", "python3", "bash", "sh", "dash", "zsh", "ruby", "perl", "php", "bun",
+                     "deno", "main", "MainThread", "node-MainThread", "entrypoint", "entrypoint_sh", "docker-entrypoi",
+                     "docker-entrypoint", "healthcheck", "healthcheck_sh", "sleep", "cat", "curl", "agent", "cli", "build",
+                     "desktop", "daily", "backup", "null", "kernel", "louthenw", "chmod", "sudo"}
+
+
+class NetdataHistory:
+    """Read-only access to a local Netdata agent's stored history for services, containers and programs."""
+
+    def __init__(self, base_url: str = "http://localhost:19999", timeout: float = 4.0) -> None:
+        self.base = base_url.rstrip("/")
+        self.timeout = timeout
+        self.charts: Set[str] = set()
+        self.first_entry: Optional[float] = None
+        self.available = False
+
+    def _get(self, path: str) -> Optional[dict]:
+        try:
+            with urllib.request.urlopen(self.base + path, timeout=self.timeout) as response:
+                return json.loads(response.read().decode("utf-8", "replace"))
+        except (OSError, ValueError):
+            return None
+
+    def connect(self) -> bool:
+        charts = self._get("/api/v1/charts")
+        if not isinstance(charts, dict) or not isinstance(charts.get("charts"), dict):
+            return False
+        self.charts = set(charts["charts"])
+        meta = self._get("/api/v1/chart?chart=system.cpu") or {}
+        self.first_entry = meta.get("first_entry")
+        self.available = bool(self.charts)
+        return self.available
+
+    def series(self, chart: str, seconds: int, points: int) -> List[float]:
+        """Per-interval totals across the chart's dimensions (absolute values), oldest first."""
+        query = urllib.parse.urlencode({"chart": chart, "after": -seconds, "points": points, "group": "average",
+                                        "format": "json", "options": "abs"})
+        data = self._get(f"/api/v1/data?{query}") or {}
+        totals = []
+        for row in data.get("data") or []:
+            values = [v for v in row[1:] if isinstance(v, (int, float))]
+            if values:
+                totals.append(float(sum(values)))
+        return totals
+
+    def charts_for(self, group: "Group") -> List[Tuple[str, str, str]]:
+        """(metric, chart id, where the numbers come from) for one program row."""
+        found: List[Tuple[str, str, str]] = []
+        prov = group.prov
+        if prov.kind == "container" and not prov.name.startswith(("docker container", "podman container")):
+            name = prov.name.replace(" (LXC)", "")
+            prefix = f"cgroup_{name}."
+            if prefix + "cpu" in self.charts:
+                found.append(("cpu", prefix + "cpu", f"container `{name}`"))
+                for chart in sorted(c for c in self.charts if c.startswith(prefix + "net_")):
+                    suffix = chart[len(prefix) + 4:]
+                    if suffix and not re.match(r"(carrier|drops|errors|events|packets|fifo|operstate|mtu|speed|duplex)_", suffix):
+                        found.append(("net", chart, f"container `{name}`"))
+                return found
+        for launch in group.launches:
+            if launch.kind in ("system-service",) and launch.unit and launch.unit.endswith(".service"):
+                stem = launch.unit[: -len(".service")].replace("@", "_")
+                if f"systemd_{stem}.cpu" in self.charts:
+                    found.append(("cpu", f"systemd_{stem}.cpu", f"service `{launch.unit}`"))
+                    if f"systemd_{stem}.io" in self.charts:
+                        found.append(("disk", f"systemd_{stem}.io", f"service `{launch.unit}`"))
+                    return found
+        names: List[str] = []
+        for proc in group.procs:
+            for candidate in (proc.comm, os.path.basename(proc.exe or ""),
+                              os.path.basename(proc.cmdline[0].split()[0]) if proc.cmdline and proc.cmdline[0].strip() else ""):
+                if candidate and candidate not in names:
+                    names.append(candidate)
+        names += [n for n in (prov.name, group.name.split(" (")[0]) if n and n not in names]
+        for name in names:
+            if name in GENERIC_APP_NAMES or len(name) < 3:
+                continue
+            chart = f"app.{name}_cpu_utilization"
+            if chart in self.charts:
+                where = f"every process named `{name}`"
+                found.append(("cpu", chart, where))
+                if f"app.{name}_disk_logical_io" in self.charts:
+                    found.append(("disk", f"app.{name}_disk_logical_io", where))
+                return found
+        return found
+
+    def history_for(self, group: "Group") -> Dict[str, object]:
+        charts = self.charts_for(group)
+        if not charts:
+            return {}
+        out: Dict[str, object] = {"source": charts[0][2]}
+        spans = (("7d", 7 * 86400, 168), ("30d", 30 * 86400, 120))
+        for metric, chart, _ in charts:
+            for label, seconds, points in spans:
+                values = self.series(chart, seconds, points)
+                if not values:
+                    continue
+                window = seconds / len(values) if values else seconds
+                if metric == "cpu":
+                    out[f"cpu_avg_{label}"] = round(sum(values) / len(values), 3)
+                    out[f"cpu_peak_{label}"] = round(max(values), 2)
+                elif metric == "net":
+                    # kilobits per second averaged per interval -> bytes moved in the window
+                    out[f"net_bytes_{label}"] = out.get(f"net_bytes_{label}", 0) + sum(values) * window * 1000 / 8
+                elif metric == "disk":
+                    # KiB per second averaged per interval -> bytes read+written in the window
+                    out[f"disk_bytes_{label}"] = out.get(f"disk_bytes_{label}", 0) + sum(values) * window * 1024
+        if self.first_entry and NOW - self.first_entry < 30 * 86400:
+            out["since"] = self.first_entry
+        return out if len(out) > 1 else {}
+
+
+def fmt_volume(num_bytes: Optional[float]) -> str:
+    return fmt_bytes(num_bytes / 1024) if num_bytes is not None else "?"
+
+
+def history_text(history: Dict[str, object]) -> str:
+    if not history:
+        return ""
+    parts = []
+    if "cpu_avg_7d" in history:
+        parts.append(f"CPU last 7 days avg {history['cpu_avg_7d']:.2f}% (busiest hour {history['cpu_peak_7d']:.1f}%)")
+    if "cpu_avg_30d" in history:
+        since = f" (since {fmt_date(history['since'])})" if history.get("since") else ""
+        parts.append(f"last 30 days avg {history['cpu_avg_30d']:.2f}%{since}")
+    if "net_bytes_7d" in history:
+        parts.append(f"network last 7 days {fmt_volume(history['net_bytes_7d'])}")
+    if "disk_bytes_7d" in history:
+        parts.append(f"disk I/O last 7 days {fmt_volume(history['disk_bytes_7d'])}")
+    return "; ".join(parts) + f" (Netdata, {history['source']})"
+
+
+def apply_netdata(groups: List[Group], netdata: NetdataHistory) -> None:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        for group, history in zip(groups, pool.map(netdata.history_for, groups)):
+            group.history = history
 
 
 def state_dir() -> str:
@@ -2332,6 +2480,10 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
         elif group.cls == "yours":
             verdict = style.yellow(verdict)
         print(pad + "→ " + verdict)
+        if group.history and "cpu_avg_7d" in group.history:
+            h = group.history
+            extra = f" · net {fmt_volume(h['net_bytes_7d'])}" if "net_bytes_7d" in h else ""
+            print(pad + "  " + style.dim(f"7 days: avg {h['cpu_avg_7d']:.2f}% CPU, busiest hour {h['cpu_peak_7d']:.1f}%{extra}"))
         if group.tip and (args.tips or group.cls != "core"):
             print(pad + "  " + style.cyan("tip: ") + style.dim(group.tip[: max(width - 30, 60)]))
     hidden = len(groups) - len(shown)
@@ -2371,8 +2523,10 @@ def detail_lines(g: Group) -> List[str]:
     for unit, info in g.unit_files.items():
         out.append(f"  - `{unit}`: {info['state'] or 'transient'}, file `{Paths.show(info['file'])}` ({info['origin']})")
     out.extend(f"- **Mentioned in:** {mention}" for mention in g.mentions)
+    if g.history:
+        out.append(f"- **Over time:** {history_text(g.history)}")
     if g.seen:
-        out.append(f"- **History:** {g.seen}")
+        out.append(f"- **Scan history:** {g.seen}")
     out.append(f"- **Uses:** {fmt_bytes(g.mem_kb)} memory" + (f" + {fmt_bytes(g.swap_kb)} swap" if g.swap_kb else "") +
                f", {g.cpu_now:.1f}% CPU now, {g.cpu_avg:.2f}% on average since it started {fmt_age(NOW - g.oldest_start)} ago, "
                f"{len(g.procs)} process(es)")
@@ -2431,7 +2585,7 @@ def json_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str
             "cpu_now": round(g.cpu_now, 2), "cpu_avg": round(g.cpu_avg, 3), "cpu_seconds": round(g.cpu_seconds, 1),
             "started": g.oldest_start, "idle": g.idle, "provenance": asdict(g.prov),
             "launches": [asdict(l) for l in g.launches], "unit_files": g.unit_files, "mentions": g.mentions,
-            "stop_hint": g.stop_hint, "disable_hint": g.disable_hint, "seen": g.seen,
+            "stop_hint": g.stop_hint, "disable_hint": g.disable_hint, "seen": g.seen, "history": g.history,
             "processes": [{"pid": p.pid, "ppid": p.ppid, "uid": p.uid, "comm": p.comm, "exe": p.exe,
                            "cmdline": redact_argv(p.cmdline)[:40], "memory_kb": p.pss_kb or p.rss_kb, "cpu_now": round(p.cpu_now, 2),
                            "cgroup": p.cgroup, "cwd": Paths.show(p.cwd) if p.cwd else None} for p in g.procs],
@@ -2485,6 +2639,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--interval", type=float, default=2.0, help="seconds to measure current CPU use (default 2)")
     parser.add_argument("--out", metavar="DIR", help=f"where to save the report (default {state_dir()})")
     parser.add_argument("--no-save", action="store_true", help="print only; don't save report or history")
+    parser.add_argument("--netdata", metavar="URL", default=os.environ.get("PROCESS_TRIAGE_NETDATA", "http://localhost:19999"),
+                        help="Netdata agent to read history from (default http://localhost:19999)")
+    parser.add_argument("--no-netdata", action="store_true", help="don't read history from Netdata")
     parser.add_argument("--no-color", action="store_true")
     parser.add_argument("--version", action="version", version=VERSION)
     args = parser.parse_args(argv)
@@ -2526,6 +2683,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_dir = args.out or state_dir()
     if not args.no_save:
         apply_history(groups, load_history(out_dir))
+    if not args.no_netdata:
+        netdata = NetdataHistory(args.netdata)
+        if netdata.connect():
+            print(style.dim(f"Reading history from Netdata ({len(netdata.charts)} charts)…"), file=sys.stderr)
+            apply_netdata(groups, netdata)
 
     if args.explain:
         explain(groups, args.explain, style)
