@@ -369,6 +369,8 @@ class Target:
     inline: bool = False           # code passed on the command line
     interpreter: Optional[str] = None
     invoked: Optional[str] = None  # absolute argv[0] when it differs (venv python symlink)
+    project: Optional[str] = None  # project folder for dev servers and `npm run` style launches
+    runner: Optional[str] = None   # npm, pnpm, yarn... when the script is a package-manager runner
 
 
 def find_script(family: str, args: List[str], cwd: Optional[str]) -> Tuple[str, Optional[str]]:
@@ -426,6 +428,42 @@ def env_value(pid: int, name: str) -> Optional[str]:
     return None
 
 
+RUNNER_FILES = {"npm-cli.js", "npx-cli.js", "pnpm.cjs", "pnpm.mjs", "pnpm.js", "yarn.js", "yarn.cjs", "corepack.js", "npm", "npx", "pnpm", "yarn"}
+RUNNER_PACKAGE = re.compile(r"/node_modules/(npm|pnpm|yarn|corepack|@pnpm/exe|@yarnpkg/cli-dist)/|/Cellar/(pnpm|yarn)/")
+PROJECT_FAMILIES = {"node", "python", "ruby", "php", "perl", "java", "lua"}
+PROJECT_MARKERS = ("package.json", "pyproject.toml", "Cargo.toml", "go.mod", "Gemfile", "composer.json", ".git")
+
+
+def runner_name(path: Optional[str]) -> Optional[str]:
+    if not path:
+        return None
+    match = RUNNER_PACKAGE.search(path)
+    if match:
+        return (match.group(1) or match.group(2)).split("/")[-1].replace("exe", "pnpm").replace("cli-dist", "yarn")
+    base = os.path.basename(path)
+    if base in RUNNER_FILES:
+        return base.split("-")[0].split(".")[0]
+    return None
+
+
+def project_dir(proc: Proc) -> Optional[str]:
+    """Folder of the project an interpreter is serving, from npm's environment or the working directory."""
+    package_json = env_value(proc.pid, "npm_package_json")
+    if package_json and os.path.exists(package_json):
+        return os.path.dirname(package_json)
+    cwd = proc.cwd
+    home = Paths.home
+    if not cwd or cwd in ("/", home) or is_system_path(cwd):
+        return None
+    if not cwd.startswith(home + "/") and cwd.startswith(("/tmp", "/proc", "/run", "/dev")):
+        return None
+    for marker in PROJECT_MARKERS:
+        found = find_upwards(cwd, marker, stop=[home])
+        if found and found != home:
+            return found
+    return cwd
+
+
 def resolve_target(proc: Proc) -> Target:
     argv0 = proc.cmdline[0] if proc.cmdline else ""
     exe = proc.exe or (argv0 if argv0.startswith("/") else None)
@@ -463,6 +501,11 @@ def resolve_target(proc: Proc) -> Target:
     if target.path is None:
         # Interactive shells, REPLs and inline code are identified by the interpreter itself.
         target.path = exe
+    target.runner = runner_name(target.path) if family == "node" else None
+    if family in PROJECT_FAMILIES and (target.runner or (target.path == exe and not target.module)):
+        # `npm run dev`, `next-server`, and other launches whose script can't be read from argv:
+        # the project folder is the best identity available.
+        target.project = project_dir(proc)
     return target
 
 
@@ -503,7 +546,8 @@ KIND_LABELS = {
     "yarn-global": "yarn global",
     "bun-global": "bun -g",
     "volta": "volta",
-    "npx-cache": "npx (temporary cache)",
+    "npx-cache": "npx / pnpm dlx (download cache)",
+    "project": "project folder",
     "node-project": "node project",
     "homebrew": "Homebrew",
     "cargo": "cargo install",
@@ -613,6 +657,16 @@ class PackageOwners:
         if self.manual is None:
             if self.manager == "dpkg" and shutil.which("apt-mark"):
                 self.manual = set(run(["apt-mark", "showmanual"], timeout=30).split())
+                # Ubuntu's installer marks everything on the install image as manual; drop those.
+                initial = "/var/log/installer/initial-status.gz"
+                if os.path.exists(initial):
+                    import gzip
+                    try:
+                        with gzip.open(initial, "rt", errors="replace") as handle:
+                            base = {line[9:].strip() for line in handle if line.startswith("Package: ")}
+                        self.manual -= base
+                    except OSError:
+                        pass
             elif self.manager == "pacman":
                 self.manual = set(run(["pacman", "-Qqe"], timeout=30).split())
             else:
@@ -838,12 +892,65 @@ def go_module(path: str) -> Optional[Tuple[str, str]]:
     return match.group(2).decode("utf-8", "replace"), match.group(3).decode("utf-8", "replace")
 
 
+VERSIONISH = re.compile(r"^v?\d+(\.\d+)+([-+._][0-9A-Za-z.]+)?$")
+GENERIC_DIRS = {"bin", "sbin", "versions", "version", "current", "latest", "stable", "libexec", "lib", "app", "dist", "build",
+                "release", "releases", "target", "out", "usr", "local", "share", "opt", ".local"}
+
+
+def program_name(path: str) -> Tuple[str, Optional[str]]:
+    """Name a loose binary; `~/.local/share/claude/versions/2.1.3` is claude 2.1.3, not "2.1.3"."""
+    parts = [p for p in path.split("/") if p]
+    version = None
+    while parts and (VERSIONISH.match(parts[-1]) or parts[-1] in GENERIC_DIRS):
+        if VERSIONISH.match(parts[-1]) and not version:
+            version = parts[-1]
+        parts.pop()
+    if not parts or parts[-1] == os.path.basename(Paths.home):
+        return os.path.basename(path), None
+    return parts[-1], version if parts[-1] != os.path.basename(path) else None
+
+
+def landed_at(path: Optional[str]) -> Optional[float]:
+    """When a file arrived here: ctime survives archives that preserve (or zero) the original mtime."""
+    try:
+        st = os.stat(path) if path else None
+    except OSError:
+        return None
+    if not st:
+        return None
+    candidates = [t for t in (st.st_ctime, st.st_mtime) if t > 315532800]  # ignore pre-1980 placeholder dates
+    return min(candidates) if candidates and st.st_mtime > 315532800 and abs(st.st_ctime - st.st_mtime) < 60 else (max(candidates) if candidates else None)
+
+
+class ContainerNames:
+    """Names, images and compose projects for running containers, when docker/podman can be asked."""
+
+    def __init__(self) -> None:
+        self.loaded = False
+        self.info: Dict[str, Dict[str, str]] = {}
+
+    def get(self, cid: str) -> Optional[Dict[str, str]]:
+        if not self.loaded:
+            self.loaded = True
+            fmt = '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}\t{{.CreatedAt}}'
+            for engine in ("docker", "podman"):
+                if not shutil.which(engine):
+                    continue
+                for line in run([engine, "ps", "--no-trunc", "--format", fmt], timeout=10).splitlines():
+                    fields = line.split("\t")
+                    if len(fields) >= 6:
+                        self.info[fields[0][:12]] = {"engine": engine, "name": fields[1], "image": fields[2],
+                                                     "project": fields[3], "service": fields[4], "created": fields[5]}
+        return self.info.get(cid[:12])
+
+
 class Classifier:
     def __init__(self, owners: PackageOwners, homes: List[str]) -> None:
         self.owners = owners
         self.python = PythonIndex()
         self.homes = homes
         self.cargo: Dict[str, Dict[str, Tuple[str, str, str]]] = {}
+        self.containers = ContainerNames()
 
     @property
     def user_sites(self) -> List[str]:
@@ -856,9 +963,27 @@ class Classifier:
         if match or "/kubepods" in cg:
             cid = match.group(1)[:12] if match else "kubernetes"
             engine = "podman" if "libpod" in cg else "docker"
+            info = self.containers.get(cid) if match else None
+            if info:
+                created = None
+                try:
+                    created = dt.datetime.strptime(info["created"][:19], "%Y-%m-%d %H:%M:%S").timestamp()
+                except ValueError:
+                    pass
+                notes = [f"image `{info['image']}`", f"container id {cid}"]
+                if info["project"]:
+                    notes.append(f"compose project `{info['project']}`, service `{info['service']}`")
+                    hint = (f"`{info['engine']} compose -p {info['project']} stop {info['service']}` now; to keep it off, remove the service "
+                            f"or its `restart:` policy from the compose file, or `{info['engine']} compose -p {info['project']} down`")
+                else:
+                    hint = (f"`{info['engine']} stop {info['name']}`; to keep it off: `{info['engine']} update --restart=no {info['name']}`, "
+                            f"or remove it with `{info['engine']} rm {info['name']}`")
+                return Provenance(kind="container", name=info["name"], location=cid, installed_at=created,
+                                  date_note="container created" if created else "", remove_hint=hint, notes=notes)
             return Provenance(
-                kind="container", name=f"{engine} container {cid}", location=cid,
+                kind="container", name=f"{engine} container {cid} ({proc.comm})", location=cid,
                 remove_hint=f"`{engine} ps` to identify it, then `{engine} stop {cid}`; remove its restart policy or compose service so it stays off",
+                notes=[f"main process `{proc.comm}`; add yourself to the {engine} group (or run with sudo) to see container names"],
             )
         flatpak = proc.flatpak_id
         if not flatpak:
@@ -914,6 +1039,8 @@ class Classifier:
                 remove_hint=f"delete `{Paths.show(image)}` (and its autostart entry, if any)" if image else "delete the .AppImage file",
             )
         path = target.path
+        if target.project:
+            return self.project(target.project, target.runner, proc)
         if target.module and target.family == "python":
             # `python -m pkg` is identified by the package, not by the interpreter binary.
             python = self.python_program(target)
@@ -966,20 +1093,45 @@ class Classifier:
         if git:
             return self.from_git(git, path)
         if path.startswith("/usr/local/"):
-            return Provenance(kind="manual-local", name=os.path.basename(path), location=path, installed_at=mtime(path),
+            name, version = program_name(path)
+            return Provenance(kind="manual-local", name=name, version=version, location=path, installed_at=landed_at(path),
                               date_note="file date", remove_hint=f"not owned by any package; delete `{path}` if unused",
                               notes=["copied there by an install script or `make install`, not the package manager"])
         if path.startswith("/opt/"):
             top = "/".join(path.split("/")[:3])
-            return Provenance(kind="manual-opt", name=os.path.basename(top), location=top, installed_at=mtime(top),
+            return Provenance(kind="manual-opt", name=os.path.basename(top), location=top, installed_at=landed_at(path),
                               date_note="folder date", remove_hint=f"not owned by any package; it lives in `{top}`")
         if any(path.startswith(h + "/") for h in self.homes):
-            return Provenance(kind="manual", name=os.path.basename(path), location=path, installed_at=mtime(path),
+            name, version = program_name(path)
+            return Provenance(kind="manual", name=name, version=version, location=path, installed_at=landed_at(path),
                               date_note="file date", remove_hint=f"delete `{Paths.show(path)}` if you don't need it")
         if is_system_path(path):
             return Provenance(kind="unknown", name=os.path.basename(path), location=path, installed_at=mtime(path),
                               date_note="file date", notes=["system file that no package claims"])
         return Provenance(kind="unknown", name=os.path.basename(path), location=path)
+
+    def project(self, folder: str, runner: Optional[str], proc: Proc) -> Provenance:
+        notes = []
+        if runner:
+            notes.append(f"launched through `{runner}`")
+        script = env_value(proc.pid, "npm_lifecycle_script")
+        if script:
+            notes.append(f"runs `{redact_text(script[:120])}`")
+        git = git_info(folder, self.homes)
+        if git:
+            prov = self.from_git(git, folder)
+            prov.notes[:0] = notes
+            return prov
+        name = os.path.basename(folder)
+        try:
+            manifest = json.loads(read_text(os.path.join(folder, "package.json")) or "{}")
+        except ValueError:
+            manifest = {}
+        if isinstance(manifest, dict) and manifest.get("name") and (re.fullmatch(r"[0-9a-f]{20,}", name) or not name):
+            name = str(manifest["name"])
+        return Provenance(kind="project", name=name, version=manifest.get("version") if isinstance(manifest, dict) else None,
+                          location=folder, installed_at=landed_at(folder), date_note="folder date", notes=notes,
+                          remove_hint=f"project folder `{Paths.show(folder)}`; remove whatever starts it, then the folder if unused")
 
     def homebrew(self, cellar: str, pkg: str, version: str) -> Provenance:
         prov = Provenance(kind="homebrew", name=pkg, version=version, location=f"{cellar}/{pkg}",
@@ -1014,8 +1166,8 @@ class Classifier:
         def make(kind: str, hint: str, notes: Optional[List[str]] = None) -> Provenance:
             return Provenance(kind=kind, name=name, version=version, installed_at=date, date_note="folder date",
                               source=source, location=package_dir, remove_hint=hint, notes=notes or [])
-        if "/_npx/" in prefix:
-            return make("npx-cache", "it runs from the npx cache; stop whatever keeps launching `npx`")
+        if "/_npx/" in prefix or "/dlx/" in prefix or "/.cache/" in prefix:
+            return make("npx-cache", "it runs from a download cache (npx / pnpm dlx); stop whatever keeps launching it")
         match = re.search(r"/\.nvm/versions/node/(v[^/]+)/lib$", prefix)
         if match:
             return make("npm-global", f"`nvm use {match.group(1)} && npm uninstall -g {name}`", [f"installed under nvm node {match.group(1)}"])
@@ -1189,6 +1341,10 @@ def parse_cgroup_launch(cg: str) -> Launch:
             return Launch("session", "your systemd user manager", scope="user")
         if last.startswith("run-") and last.endswith(".scope"):
             return Launch("transient", "started with `systemd-run`", unit=last, scope="user")
+        if last.startswith("tmux-spawn-") or last.startswith("tmux"):
+            return Launch("terminal", "running inside tmux", unit=last, scope="user")
+        if last.endswith(".scope"):
+            return Launch("app-launched", f"user session scope `{unescape_unit(last)}`", unit=last, scope="user")
     if re.match(r"/user\.slice/user-\d+\.slice/session-[^/]+\.scope", cg):
         return Launch("login-session", "started directly by your login session")
     if cg.startswith("/system.slice/"):
@@ -1202,6 +1358,8 @@ def parse_cgroup_launch(cg: str) -> Launch:
         return Launch("init", "the init system")
     if cg.startswith("/machine.slice/"):
         return Launch("container", "a container or VM", unit=last, scope="system")
+    if cg and cg != "/":
+        return Launch("unknown", f"unrecognized cgroup `{cg}`")
     return Launch("unknown", "unknown (no systemd information)")
 
 
@@ -1272,6 +1430,8 @@ OPTIONAL_TIPS = {
     "kaccess": "Accessibility helper. Tiny.",
     "plasma-browser-integration-host": "Plasma browser integration; safe to remove the browser extension if unused.",
     "tracker-miner-fs-3": "GNOME file indexer pulled in by GNOME apps. `systemctl --user mask tracker-miner-fs-3.service` to stop it.",
+    "localsearch-3": "GNOME's file indexer (formerly Tracker), pulled in by GNOME apps; KDE doesn't need it. Stop it for good with `systemctl --user mask --now localsearch-3.service localsearch-control-3.service`.",
+    "localsearch": "GNOME's file indexer (formerly Tracker); see localsearch-3.",
     "evolution-data-server": "GNOME calendar/contacts backend pulled in by GNOME apps.",
     "evolution-source-registry": "GNOME calendar/contacts backend pulled in by GNOME apps.",
     "evolution-addressbook-factory": "GNOME contacts backend pulled in by GNOME apps.",
@@ -1297,10 +1457,24 @@ IDLE_MIN_UPTIME = 6 * 3600
 HOG_KB = 150 * 1024
 
 
-def safety_class(name: str, comm: str, prov: Provenance, launch_kinds: Set[str]) -> str:
-    """Return core | optional | system | yours."""
-    names = {name, comm}
-    if names & CORE_NAMES or comm.startswith(CORE_PREFIXES):
+CORE_PACKAGES = {
+    "plasma-workspace", "plasma-workspace-wayland", "plasma-desktop", "kwin-wayland", "kwin-x11", "kwin", "sddm", "pipewire",
+    "pipewire-bin", "pipewire-pulse", "wireplumber", "systemd", "systemd-sysv", "dbus", "dbus-daemon", "dbus-broker",
+    "dbus-user-session", "xwayland", "xserver-xorg-core", "kded", "kf6-kded", "kded6", "kglobalacceld", "powerdevil",
+    "polkit-kde-agent-1", "xdg-desktop-portal", "xdg-desktop-portal-kde", "xdg-desktop-portal-gtk", "plasma-integration",
+    "kscreen", "libkscreen-bin", "network-manager", "networkmanager", "policykit-1", "polkitd", "udisks2", "upower",
+    "accountsservice", "rtkit", "bluez", "kactivitymanagerd", "plasma-activities", "kde-cli-tools", "at-spi2-core", "gvfs",
+    "gvfs-daemons", "xdg-dbus-proxy", "kwallet6", "libkf6wallet-bin", "kwalletmanager", "kwallet", "plasma-nm", "plasma-pa",
+    "kinit", "ibus", "fcitx5", "plasma5support", "libplasma", "kio", "kf6-kio", "libkf6kiocore6", "kio-extras", "ksystemstats",
+}
+
+
+def safety_class(name, comm, prov: Provenance, launch_kinds: Set[str]) -> str:
+    """Return core | optional | system | yours. `comm` may be a single name or a set of process/binary names."""
+    comms = set(comm) if isinstance(comm, (set, list, tuple)) else {comm}
+    names = {name} | comms
+    if names & CORE_NAMES or any(c.startswith(CORE_PREFIXES) for c in comms) or \
+            (prov.kind == "system-package" and prov.name in CORE_PACKAGES):
         return "core"
     if prov.kind in SIDE_INSTALL_KINDS:
         return "yours"
@@ -1308,7 +1482,7 @@ def safety_class(name: str, comm: str, prov: Provenance, launch_kinds: Set[str])
         return "optional"
     if "session" in launch_kinds and prov.kind == "system-package" and not prov.manual:
         return "core"
-    if comm in SHELLS or name in SHELLS:
+    if names & SHELLS:
         return "system"
     if prov.kind == "system-package" and prov.manual and launch_kinds & {"autostart", "user-service", "app-launched", "terminal", "child", "on-demand"}:
         return "yours"
@@ -1356,7 +1530,10 @@ def fold_children(procs: List[Proc], table: Dict[int, Proc], provs: Dict[int, Pr
         if not parent or provs[proc.pid].kind != "system-package" or proc.comm in SHELLS:
             continue
         parent_prov = provs.get(parent.pid)
-        if parent_prov and parent_prov.kind in SIDE_INSTALL_KINDS and parent_prov.kind != "container":
+        helper = bool(proc.exe) and proc.exe.startswith(("/usr/lib/", "/usr/lib64/", "/usr/libexec/", "/lib/")) \
+            or provs[proc.pid].name.startswith("lib")
+        own_app = parent.comm not in ROOT_PARENTS and parent.comm not in SHELLS and parent.comm not in TERMINALS and parent.pid != 1
+        if parent_prov and parent_prov.kind != "container" and (parent_prov.kind in SIDE_INSTALL_KINDS or (helper and own_app)):
             note = f"includes child process `{proc.comm}` ({provs[proc.pid].name})"
             if note not in parent_prov.notes and len(parent_prov.notes) < 12:
                 parent_prov.notes.append(note)
@@ -1393,8 +1570,10 @@ def build_groups(procs: List[Proc], classifier: Classifier) -> List[Group]:
         uptime = max(NOW - group.oldest_start, 1)
         group.cpu_avg = group.cpu_seconds / uptime * 100
         comm = group.procs[0].comm
-        group.cls = safety_class(group.name, comm, group.prov, {l.kind for l in group.launches})
-        group.tip = OPTIONAL_TIPS.get(group.name) or OPTIONAL_TIPS.get(comm)
+        every = {p.comm for p in group.procs} | {os.path.basename(p.exe) for p in group.procs if p.exe} | \
+            {os.path.basename(p.cmdline[0]) for p in group.procs if p.cmdline and p.cmdline[0]}
+        group.cls = safety_class(group.name, every, group.prov, {l.kind for l in group.launches})
+        group.tip = OPTIONAL_TIPS.get(group.name) or next((OPTIONAL_TIPS[n] for n in sorted(every) if n in OPTIONAL_TIPS), None)
         if group.prov.kind == "system-package" and group.name != comm and len({p.comm for p in group.procs}) == 1:
             group.name = f"{comm} ({group.prov.name})"
         if any(p.exe_deleted for p in group.procs):
@@ -1717,7 +1896,7 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
     elif group.cls == "core":
         group.verdict = "keep: part of the desktop or system"
     elif group.cls == "optional":
-        group.verdict = "optional desktop extra" + ("; idle" if group.idle else "")
+        group.verdict = ("optional, and idle" if group.idle else "optional") + ("; see tip" if group.tip else "")
     elif group.cls == "system":
         group.verdict = "system component; leave it unless you know you don't need it"
     elif group.idle and big:
@@ -1813,7 +1992,9 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
             verdict = style.red(verdict)
         elif group.cls == "yours":
             verdict = style.yellow(verdict)
-        print(pad + "→ " + verdict + (f"  {style.dim(group.tip)}" if group.tip and args.tips else ""))
+        print(pad + "→ " + verdict)
+        if group.tip and (args.tips or group.cls in ("optional", "yours")):
+            print(pad + "  " + style.cyan("tip: ") + style.dim(group.tip[: max(width - 30, 60)]))
     hidden = len(groups) - len(shown)
     if hidden > 0:
         print(style.dim(f"\n   … {hidden} more (use --all; --mine shows only things you or side installers added)"))
@@ -1909,7 +2090,7 @@ def json_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str
             "stop_hint": g.stop_hint, "disable_hint": g.disable_hint, "seen": g.seen,
             "processes": [{"pid": p.pid, "ppid": p.ppid, "uid": p.uid, "comm": p.comm, "exe": p.exe,
                            "cmdline": redact_argv(p.cmdline)[:40], "memory_kb": p.pss_kb or p.rss_kb, "cpu_now": round(p.cpu_now, 2),
-                           "cgroup": p.cgroup} for p in g.procs],
+                           "cgroup": p.cgroup, "cwd": Paths.show(p.cwd) if p.cwd else None} for p in g.procs],
         })
     return {"tool": "process-triage", "version": VERSION, "time": NOW, "meta": meta, "meminfo_kb": meminfo,
             "programs": programs, "startup": [asdict(i) for i in items]}

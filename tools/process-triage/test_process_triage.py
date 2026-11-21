@@ -217,8 +217,53 @@ class FileBasedClassification(unittest.TestCase):
         distro = pt.Provenance(kind="system-package", name="plasma-workspace")
         self.assertEqual(pt.safety_class("plasmashell", "plasmashell", distro, {"session"}), "core")
         self.assertEqual(pt.safety_class("x", "x", side, {"autostart"}), "yours")
-        self.assertEqual(pt.safety_class("baloo_file", "baloo_file", distro, {"user-service"}), "optional")
+        baloo = pt.Provenance(kind="system-package", name="baloo-kf6")
+        self.assertEqual(pt.safety_class("baloo_file", "baloo_file", baloo, {"user-service"}), "optional")
+        # Truncated comm names still match core packages and full binary names.
+        self.assertEqual(pt.safety_class("plasma-workspace", {"startplasma-way", "startplasma-wayland"}, distro, {"login-session"}), "core")
         self.assertEqual(pt.safety_class("bash", "bash", pt.Provenance(kind="system-package", name="bash", manual=True), {"terminal"}), "system")
+
+
+class RealScanRegressions(unittest.TestCase):
+    """Cases seen on a real KDE desktop scan."""
+
+    def test_versioned_binary_is_named_after_its_folder(self):
+        pt.Paths.home = "/home/u"
+        self.assertEqual(pt.program_name("/home/u/.local/share/claude/versions/2.1.328"), ("claude", "2.1.328"))
+        self.assertEqual(pt.program_name("/home/u/bin/prime-agent"), ("prime-agent", None))
+
+    def test_package_manager_runners(self):
+        self.assertEqual(pt.runner_name("/home/linuxbrew/.linuxbrew/Cellar/node/24.1.0/lib/node_modules/npm/bin/npm-cli.js"), "npm")
+        self.assertEqual(pt.runner_name("/home/linuxbrew/.linuxbrew/Cellar/pnpm/10.2.0/libexec/bin/pnpm.cjs"), "pnpm")
+        self.assertIsNone(pt.runner_name("/home/u/src/app/server.js"))
+
+    def test_unrecognized_cgroup_is_shown(self):
+        self.assertIn("/prime.slice/agent.service", pt.parse_cgroup_launch("/prime.slice/agent.service").detail)
+        self.assertEqual(pt.parse_cgroup_launch(USER + "/app.slice/tmux-spawn-1234.scope").kind, "terminal")
+
+    def test_library_helpers_fold_into_the_app(self):
+        app = make_proc(30, 1, "mangodisk", exe="/usr/bin/mangodisk")
+        helper = make_proc(31, 30, "WebKitWebProces", exe="/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitWebProcess")
+        provs = {30: pt.Provenance(kind="system-package", name="mango-disk"),
+                 31: pt.Provenance(kind="system-package", name="libwebkit2gtk-4.1-0")}
+        pt.fold_children([app, helper], {30: app, 31: helper}, provs)
+        self.assertEqual(provs[31].name, "mango-disk")
+
+    def test_dev_server_without_script_maps_to_project(self):
+        with tempfile.TemporaryDirectory() as home:
+            pt.Paths.home = home
+            project = os.path.join(home, "koda")
+            os.makedirs(os.path.join(project, ".next"))
+            with open(os.path.join(project, "package.json"), "w") as handle:
+                handle.write(json.dumps({"name": "koda-ui"}))
+            proc = make_proc(40, 1, "next-server", cmdline=["next-server (v15.1.0)"], exe="/home/linuxbrew/.linuxbrew/Cellar/node/24.1.0/bin/node")
+            proc.cwd = os.path.join(project, ".next")
+            target = pt.resolve_target(proc)
+            self.assertEqual(target.project, project)
+            owners = pt.PackageOwners()
+            owners.manager = None
+            prov = pt.Classifier(owners, [home]).classify(proc, target)
+            self.assertEqual((prov.kind, prov.name), ("project", "koda"))
 
 
 if __name__ == "__main__":
