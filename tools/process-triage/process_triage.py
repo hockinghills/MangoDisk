@@ -40,7 +40,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -431,6 +431,7 @@ def env_value(pid: int, name: str) -> Optional[str]:
 RUNNER_FILES = {"npm-cli.js", "npx-cli.js", "pnpm.cjs", "pnpm.mjs", "pnpm.js", "yarn.js", "yarn.cjs", "corepack.js", "npm", "npx", "pnpm", "yarn"}
 RUNNER_PACKAGE = re.compile(r"/node_modules/(npm|pnpm|yarn|corepack|@pnpm/exe|@yarnpkg/cli-dist)/|/Cellar/(pnpm|yarn)/")
 PROJECT_FAMILIES = {"node", "python", "ruby", "php", "perl", "java", "lua"}
+BUILD_DIRS = {"dist", "build", "out", "standalone", ".next", ".output", "server", "lib", "bundle"}
 PROJECT_MARKERS = ("package.json", "pyproject.toml", "Cargo.toml", "go.mod", "Gemfile", "composer.json", ".git")
 
 
@@ -459,6 +460,9 @@ def project_dir(proc: Proc) -> Optional[str]:
         return None
     for marker in PROJECT_MARKERS:
         found = find_upwards(cwd, marker, stop=[home])
+        # Build output folders (dist/, .next/standalone) often carry their own package.json.
+        while found and os.path.basename(found) in BUILD_DIRS and find_upwards(os.path.dirname(found), marker, stop=[home]):
+            found = find_upwards(os.path.dirname(found), marker, stop=[home])
         if found and found != home:
             return found
     return cwd
@@ -574,6 +578,13 @@ def is_system_path(path: Optional[str]) -> bool:
     return bool(path) and path.startswith(SYSTEM_PREFIXES)
 
 
+DESKTOP_BUNDLED = re.compile(
+    r"^(plasma-|kde|kwin|kf6-|libkf|breeze|kio|kscreen|kwallet|kactivit|kinfocenter|systemsettings|khelpcenter|kmenuedit|"
+    r"dolphin|konsole|kate|kwrite|okular|gwenview|ark$|spectacle|kdeconnect|partitionmanager|kcalc|elisa|haruna|sddm|"
+    r"gnome-|nautilus|gedit|evince|eog|totem|tracker|localsearch|evolution|ubuntu-|kubuntu-|xdg-|xwayland|pipewire|wireplumber)"
+)
+
+
 class PackageOwners:
     """Ask the distro package manager which package owns a file."""
 
@@ -581,6 +592,7 @@ class PackageOwners:
         self.manager = self._detect()
         self.cache: Dict[str, Optional[str]] = {}
         self.manual: Optional[Set[str]] = None
+        self.apt_history_glob = "/var/log/apt/history.log*"
         self.front = {"dpkg": "sudo apt remove", "pacman": "sudo pacman -Rs"}.get(self.manager or "", "")
         if self.manager == "rpm":
             self.front = "sudo dnf remove" if shutil.which("dnf") else ("sudo zypper remove" if shutil.which("zypper") else "sudo rpm -e")
@@ -653,7 +665,52 @@ class PackageOwners:
                         return float(match.group(1))
         return None
 
+    def _apt_history(self) -> Dict[str, float]:
+        """Packages you explicitly asked apt (or Discover/PackageKit) to install, with the date."""
+        if hasattr(self, "_requested"):
+            return self._requested
+        import gzip
+        requested: Dict[str, float] = {}
+        paths = sorted(glob.glob(self.apt_history_glob), reverse=True)
+        for path in paths:
+            try:
+                opener = gzip.open if path.endswith(".gz") else open
+                with opener(path, "rt", errors="replace") as handle:
+                    text = handle.read()
+            except OSError:
+                continue
+            for block in text.split("\n\n"):
+                fields = dict(line.split(": ", 1) for line in block.strip().splitlines() if ": " in line)
+                try:
+                    when = dt.datetime.strptime(fields.get("Start-Date", "").replace("  ", " "), "%Y-%m-%d %H:%M:%S").timestamp()
+                except ValueError:
+                    continue
+                command = fields.get("Commandline", "")
+                names: List[str] = []
+                if command:
+                    words = command.split()
+                    if "install" in words:
+                        for word in words[words.index("install") + 1:]:
+                            if word.startswith("-"):
+                                continue
+                            names.append(os.path.basename(word).split("_")[0] if word.endswith(".deb") else word.split("=")[0].split(":")[0])
+                elif fields.get("Install"):
+                    # PackageKit (Discover) transactions carry no command line; skip pulled-in dependencies.
+                    names = [name for name, detail in re.findall(r"([^\s,:]+)(?::[^\s,]+)? \(([^)]*)\)", fields["Install"])
+                             if "automatic" not in detail]
+                for name in names:
+                    requested.setdefault(name, when)
+        self._requested = requested
+        return requested
+
+    def requested_at(self, package: str) -> Optional[float]:
+        return self._apt_history().get(package) if self.manager == "dpkg" else None
+
     def is_manual(self, package: str) -> Optional[bool]:
+        if self.manager == "dpkg" and package in self._apt_history():
+            return True
+        if self.manager == "dpkg" and DESKTOP_BUNDLED.match(package):
+            return None  # most likely came with the desktop install, whatever apt-mark says
         if self.manual is None:
             if self.manager == "dpkg" and shutil.which("apt-mark"):
                 self.manual = set(run(["apt-mark", "showmanual"], timeout=30).split())
@@ -918,8 +975,11 @@ def landed_at(path: Optional[str]) -> Optional[float]:
         return None
     if not st:
         return None
-    candidates = [t for t in (st.st_ctime, st.st_mtime) if t > 315532800]  # ignore pre-1980 placeholder dates
-    return min(candidates) if candidates and st.st_mtime > 315532800 and abs(st.st_ctime - st.st_mtime) < 60 else (max(candidates) if candidates else None)
+    # ctime records when the file was written here; archives preserve (or zero) the original mtime.
+    for value in (st.st_ctime, st.st_mtime):
+        if value > 315532800:  # ignore pre-1980 placeholder dates
+            return value
+    return None
 
 
 class ContainerNames:
@@ -985,6 +1045,18 @@ class Classifier:
                 remove_hint=f"`{engine} ps` to identify it, then `{engine} stop {cid}`; remove its restart policy or compose service so it stays off",
                 notes=[f"main process `{proc.comm}`; add yourself to the {engine} group (or run with sudo) to see container names"],
             )
+        match = re.search(r"/lxc\.payload\.([^/]+)(/.*)?", cg)
+        if match:
+            raw = match.group(1)
+            project, _, name = raw.rpartition("_") if "_" in raw else ("", "", raw)
+            inner = (match.group(2) or "").rstrip("/").split("/")[-1]
+            cli = "incus" if shutil.which("incus") else "lxc"
+            flag = f" --project {project}" if project and project != "default" else ""
+            notes = [f"inside the container it runs `{inner}`"] if inner else []
+            if project:
+                notes.append(f"{cli} project `{project}`")
+            return Provenance(kind="container", name=f"{name} (LXC)", location=f"lxc:{raw}", notes=notes,
+                              remove_hint=f"`{cli} stop {name}{flag}`; to keep it from starting at boot: `{cli} config set {name}{flag} boot.autostart=false`")
         flatpak = proc.flatpak_id
         if not flatpak:
             match = re.search(r"app-flatpak-(.+?)-[0-9a-zA-Z]+\.scope", cg)
@@ -1040,6 +1112,11 @@ class Classifier:
             )
         path = target.path
         if target.project:
+            if "/node_modules/" in target.project:
+                # e.g. an npm -g package serving from its own dist/ folder: same program as the package.
+                node = self.node(target.project.rstrip("/") + "/")
+                if node:
+                    return node
             return self.project(target.project, target.runner, proc)
         if target.module and target.family == "python":
             # `python -m pkg` is identified by the package, not by the interpreter binary.
@@ -1081,9 +1158,10 @@ class Classifier:
         if is_system_path(path):
             pkg = self.owners.owner(path)
             if pkg:
+                asked = self.owners.requested_at(pkg)
                 return Provenance(
-                    kind="system-package", name=pkg, location=pkg, installed_at=self.owners.installed_at(pkg),
-                    date_note="install or last upgrade", manual=self.owners.is_manual(pkg),
+                    kind="system-package", name=pkg, location=pkg, installed_at=asked or self.owners.installed_at(pkg),
+                    date_note="you ran apt install" if asked else "install or last upgrade", manual=self.owners.is_manual(pkg),
                     remove_hint=f"`{self.owners.front} {pkg}`" if self.owners.front else None,
                 )
         python = self.python_program(target)
@@ -1099,7 +1177,7 @@ class Classifier:
                               notes=["copied there by an install script or `make install`, not the package manager"])
         if path.startswith("/opt/"):
             top = "/".join(path.split("/")[:3])
-            return Provenance(kind="manual-opt", name=os.path.basename(top), location=top, installed_at=landed_at(path),
+            return Provenance(kind="manual-opt", name=os.path.basename(top), location=top, installed_at=landed_at(path) or landed_at(top),
                               date_note="folder date", remove_hint=f"not owned by any package; it lives in `{top}`")
         if any(path.startswith(h + "/") for h in self.homes):
             name, version = program_name(path)
@@ -1343,6 +1421,9 @@ def parse_cgroup_launch(cg: str) -> Launch:
             return Launch("transient", "started with `systemd-run`", unit=last, scope="user")
         if last.startswith("tmux-spawn-") or last.startswith("tmux"):
             return Launch("terminal", "running inside tmux", unit=last, scope="user")
+        match = re.match(r"(vte|ptyxis|gnome-terminal|kgx|wezterm|kitty)-spawn-", last)
+        if match:
+            return Launch("terminal", f"started from a terminal ({match.group(1)})", unit=last, scope="user")
         if last.endswith(".scope"):
             return Launch("app-launched", f"user session scope `{unescape_unit(last)}`", unit=last, scope="user")
     if re.match(r"/user\.slice/user-\d+\.slice/session-[^/]+\.scope", cg):
@@ -1356,6 +1437,8 @@ def parse_cgroup_launch(cg: str) -> Launch:
         return Launch("system-service", f"system service `{unit}`", unit=unit, scope="system")
     if cg == "/init.scope":
         return Launch("init", "the init system")
+    if cg.startswith("/lxc.payload.") or "/lxc.payload." in cg:
+        return Launch("container", "an LXC/Incus container", unit=segments[0] if segments else None, scope="system")
     if cg.startswith("/machine.slice/"):
         return Launch("container", "a container or VM", unit=last, scope="system")
     if cg and cg != "/":
@@ -1446,6 +1529,8 @@ OPTIONAL_TIPS = {
     "org.kde.merkuro.contact": "KDE contacts.",
     "kmail": "KMail.",
     "snapd": "Snap daemon. Only needed if you use snaps.",
+    "mount.ntfs-3g": "FUSE driver serving an NTFS drive you mounted. It stays until you unmount it (`umount <mount point>`).",
+    "mount.ntfs": "FUSE driver serving an NTFS drive you mounted. It stays until you unmount it (`umount <mount point>`).",
     "dockerd": "Docker engine. Disable with `sudo systemctl disable --now docker.service docker.socket` if you only use it occasionally.",
     "containerd": "Container runtime used by Docker.",
     "ollama": "Ollama local-model server; holds models in RAM while loaded.",

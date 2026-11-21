@@ -266,5 +266,59 @@ class RealScanRegressions(unittest.TestCase):
             self.assertEqual((prov.kind, prov.name), ("project", "koda"))
 
 
+class SecondScanRegressions(unittest.TestCase):
+    def test_lxc_container(self):
+        owners = pt.PackageOwners()
+        owners.manager = None
+        proc = make_proc(50, 1, "python3", cgroup="/lxc.payload.user-982_taos-agent-ops/system.slice/hermes-gateway.service")
+        prov = pt.Classifier(owners, ["/home/u"]).from_cgroup(proc)
+        self.assertEqual((prov.kind, prov.name), ("container", "taos-agent-ops (LXC)"))
+        self.assertIn("--project user-982", prov.remove_hint)
+        self.assertEqual(pt.parse_cgroup_launch(proc.cgroup).kind, "container")
+
+    def test_terminal_spawn_scope(self):
+        launch = pt.parse_cgroup_launch(USER + "/app.slice/ptyxis-spawn-94a0be42-1832-42e5-abd5-261a63ac5363.scope")
+        self.assertEqual(launch.kind, "terminal")
+
+    def test_npm_package_serving_from_dist(self):
+        with tempfile.TemporaryDirectory() as root:
+            pkg = os.path.join(root, ".npm-global/lib/node_modules/omniroute")
+            os.makedirs(os.path.join(pkg, "dist"))
+            os.makedirs(os.path.join(root, ".npm-global/bin"))
+            for folder, name in ((pkg, "omniroute"), (os.path.join(pkg, "dist"), "omniroute-dist")):
+                with open(os.path.join(folder, "package.json"), "w") as handle:
+                    handle.write(json.dumps({"name": name, "version": "1.0.0"}))
+            pt.Paths.home = root
+            proc = make_proc(51, 1, "node-MainThread", cmdline=["node-MainThread"], exe="/usr/bin/node")
+            proc.cwd = os.path.join(pkg, "dist")
+            target = pt.resolve_target(proc)
+            self.assertEqual(target.project, pkg)
+            owners = pt.PackageOwners()
+            owners.manager = None
+            prov = pt.Classifier(owners, [root]).classify(proc, target)
+            self.assertEqual((prov.kind, prov.name), ("npm-global", "omniroute"))
+
+    def test_apt_history_marks_what_you_asked_for(self):
+        with tempfile.TemporaryDirectory() as root:
+            log = os.path.join(root, "history.log")
+            with open(log, "w") as handle:
+                handle.write(
+                    "Start-Date: 2026-09-18  10:00:00\nCommandline: apt install ptyxis ./google-chrome-stable_131_amd64.deb\n"
+                    "Install: ptyxis:amd64 (47.0), libvte:amd64 (0.78, automatic)\nEnd-Date: 2026-09-18  10:00:05\n\n"
+                    "Start-Date: 2026-09-20  09:00:00\nRequested-By: me (1000)\n"
+                    "Install: netbird-ui:amd64 (0.30), libayatana:amd64 (1.0, automatic)\nEnd-Date: 2026-09-20  09:00:03\n"
+                )
+            owners = pt.PackageOwners()
+            owners.manager = "dpkg"
+            owners.apt_history_glob = log
+            owners.manual = set()
+            self.assertTrue(owners.is_manual("ptyxis"))
+            self.assertTrue(owners.is_manual("google-chrome-stable"))
+            self.assertTrue(owners.is_manual("netbird-ui"))
+            self.assertIsNone(owners.is_manual("libayatana"))
+            self.assertIsNone(owners.is_manual("dolphin"))
+            self.assertIsNotNone(owners.requested_at("ptyxis"))
+
+
 if __name__ == "__main__":
     unittest.main()
