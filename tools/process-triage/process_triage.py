@@ -40,7 +40,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
