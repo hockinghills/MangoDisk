@@ -40,7 +40,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -328,6 +328,8 @@ def interpreter_family(name: str) -> Optional[str]:
         return "python"
     if name in ("node", "nodejs", "bun", "deno"):
         return "node"
+    if name in ("gjs", "gjs-console", "cjs"):
+        return "gjs"
     if re.fullmatch(r"ruby[0-9.]*", name):
         return "ruby"
     if re.fullmatch(r"perl[0-9.]*", name):
@@ -353,10 +355,11 @@ OPTION_ARGS = {
     "shell": {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"},
     "java": {"-cp", "-classpath", "--class-path", "-p", "--module-path", "--add-modules", "--add-opens", "--add-exports"},
     "lua": {"-l"},
+    "gjs": {"-I", "--include-path", "--profile", "--debugger"},
 }
 INLINE_FLAGS = {
     "python": {"-c"}, "node": {"-e", "--eval", "-p", "--print"}, "ruby": {"-e"},
-    "perl": {"-e", "-E"}, "php": {"-r"}, "lua": {"-e"},
+    "perl": {"-e", "-E"}, "php": {"-r"}, "lua": {"-e"}, "gjs": {"-c", "--command"},
 }
 RUNNER_WORDS = {"run", "x", "exec", "start", "serve"}
 
@@ -665,12 +668,12 @@ class PackageOwners:
                         return float(match.group(1))
         return None
 
-    def _apt_history(self) -> Dict[str, float]:
-        """Packages you explicitly asked apt (or Discover/PackageKit) to install, with the date."""
+    def _apt_history(self) -> Dict[str, Tuple[float, bool]]:
+        """Packages named in apt (or Discover/PackageKit) installs: name -> (date, part of a bulk transaction)."""
         if hasattr(self, "_requested"):
             return self._requested
         import gzip
-        requested: Dict[str, float] = {}
+        requested: Dict[str, Tuple[float, bool]] = {}
         paths = sorted(glob.glob(self.apt_history_glob), reverse=True)
         for path in paths:
             try:
@@ -694,20 +697,26 @@ class PackageOwners:
                             if word.startswith("-"):
                                 continue
                             names.append(os.path.basename(word).split("_")[0] if word.endswith(".deb") else word.split("=")[0].split(":")[0])
-                elif fields.get("Install"):
+                elif fields.get("Install") and fields.get("Requested-By"):
                     # PackageKit (Discover) transactions carry no command line; skip pulled-in dependencies.
                     names = [name for name, detail in re.findall(r"([^\s,:]+)(?::[^\s,]+)? \(([^)]*)\)", fields["Install"])
                              if "automatic" not in detail]
+                # A transaction naming many packages is a desktop switch, release upgrade or script,
+                # not a sign that each one was picked by hand.
+                bulk = len(names) > 8
                 for name in names:
-                    requested.setdefault(name, when)
+                    if name not in requested or (requested[name][1] and not bulk):
+                        requested[name] = (when, bulk)
         self._requested = requested
         return requested
 
     def requested_at(self, package: str) -> Optional[float]:
-        return self._apt_history().get(package) if self.manager == "dpkg" else None
+        entry = self._apt_history().get(package) if self.manager == "dpkg" else None
+        return entry[0] if entry else None
 
     def is_manual(self, package: str) -> Optional[bool]:
-        if self.manager == "dpkg" and package in self._apt_history():
+        entry = self._apt_history().get(package) if self.manager == "dpkg" else None
+        if entry and not entry[1]:
             return True
         if self.manager == "dpkg" and DESKTOP_BUNDLED.match(package):
             return None  # most likely came with the desktop install, whatever apt-mark says
@@ -1529,6 +1538,9 @@ OPTIONAL_TIPS = {
     "org.kde.merkuro.contact": "KDE contacts.",
     "kmail": "KMail.",
     "snapd": "Snap daemon. Only needed if you use snaps.",
+    "drkonqi-coredump-launcher": "KDE's crash reporter, handling a crash that just happened. It exits on its own.",
+    "drkonqi-coredump-processor": "KDE's crash reporter, handling a crash that just happened. It exits on its own.",
+    "drkonqi": "KDE's crash reporter. It exits on its own.",
     "mount.ntfs-3g": "FUSE driver serving an NTFS drive you mounted. It stays until you unmount it (`umount <mount point>`).",
     "mount.ntfs": "FUSE driver serving an NTFS drive you mounted. It stays until you unmount it (`umount <mount point>`).",
     "dockerd": "Docker engine. Disable with `sudo systemctl disable --now docker.service docker.socket` if you only use it occasionally.",

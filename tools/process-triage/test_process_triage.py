@@ -319,6 +319,24 @@ class SecondScanRegressions(unittest.TestCase):
             self.assertIsNone(owners.is_manual("dolphin"))
             self.assertIsNotNone(owners.requested_at("ptyxis"))
 
+    def test_bulk_transactions_are_not_hand_picked(self):
+        with tempfile.TemporaryDirectory() as root:
+            log = os.path.join(root, "history.log")
+            many = " ".join(f"pkg{i}" for i in range(20))
+            with open(log, "w") as handle:
+                handle.write(f"Start-Date: 2026-09-18  10:00:00\nCommandline: apt install dolphin {many}\nEnd-Date: x\n\n"
+                             "Start-Date: 2026-09-19  10:00:00\nCommandline: apt install pkg3\nEnd-Date: x\n")
+            owners = pt.PackageOwners()
+            owners.manager, owners.apt_history_glob, owners.manual = "dpkg", log, set()
+            self.assertIsNone(owners.is_manual("dolphin"))
+            self.assertIsNotNone(owners.requested_at("dolphin"))
+            self.assertTrue(owners.is_manual("pkg3"))
+
+    def test_gjs_script(self):
+        self.assertEqual(pt.interpreter_family("gjs"), "gjs")
+        self.assertEqual(pt.find_script("gjs", ["-I", "/opt/x/lib", "/opt/Surfshark/surfsharkd.js"], None),
+                         ("path", "/opt/Surfshark/surfsharkd.js"))
+
 
 if __name__ == "__main__":
     unittest.main()
