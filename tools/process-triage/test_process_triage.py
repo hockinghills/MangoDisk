@@ -440,5 +440,67 @@ class FullRunRegressions(unittest.TestCase):
             self.assertFalse(owners.is_manual("libdep0"))
 
 
+class FourthRunRegressions(unittest.TestCase):
+    def test_apt_history_uses_install_flags_and_first_date(self):
+        with tempfile.TemporaryDirectory() as root:
+            log = os.path.join(root, "history.log")
+            with open(log, "w") as handle:
+                handle.write(
+                    "Start-Date: 2025-11-17  09:00:00\nCommandline: packagekit role='install-files'\nRequested-By: me (1000)\n"
+                    "Install: google-chrome-stable:amd64 (131), libnss3:amd64 (3.1, automatic)\nEnd-Date: x\n\n"
+                    "Start-Date: 2026-08-23  09:00:00\nCommandline: apt install google-chrome-stable\n"
+                    "Upgrade: google-chrome-stable:amd64 (131, 140)\nEnd-Date: x\n\n"
+                    "Start-Date: 2026-11-17  12:00:00\nCommandline: apt-get install -y ./MangoDisk_2.0.0_amd64.deb\n"
+                    "Install: mango-disk:amd64 (2.0.0), libwebkit:amd64 (1.0, automatic)\nEnd-Date: x\n"
+                )
+            owners = pt.PackageOwners()
+            owners.manager, owners.apt_history_glob, owners.manual = "dpkg", log, set()
+            self.assertTrue(owners.is_manual("mango-disk"))       # .deb file name differs from the package
+            self.assertTrue(owners.is_manual("google-chrome-stable"))
+            self.assertEqual(pt.fmt_date(owners.requested_at("google-chrome-stable")), "2025-11-17")
+            self.assertIn("Discover/PackageKit", owners.came_with_note("google-chrome-stable"))
+            self.assertFalse(owners.is_manual("libnss3"))
+
+    def test_plasma_widget_commands(self):
+        cg = USER + "/session.slice/plasma-plasmashell.service"
+        shell = make_proc(120, 1, "plasmashell", cgroup=cg)
+        probe = make_proc(121, 120, "intel_gpu_top", cgroup=cg)
+        table = {120: shell, 121: probe}
+        self.assertEqual(pt.refine_launch(pt.parse_cgroup_launch(cg), probe, table, {}).kind, "widget")
+        self.assertEqual(pt.refine_launch(pt.parse_cgroup_launch(cg), shell, table, {}).kind, "session")
+        # A distro tool run by a widget is not part of the core desktop.
+        self.assertNotEqual(pt.safety_class("rust-coreutils", {"sleep"}, pt.Provenance(kind="system-package", name="rust-coreutils"),
+                                            {"widget", "terminal"}), "core")
+
+    def test_container_hints_use_the_engine(self):
+        owners = pt.PackageOwners()
+        owners.manager = None
+        classifier = pt.Classifier(owners, ["/home/u"])
+        classifier.containers.loaded = True
+        classifier.containers.info["15615e12e214"] = {"engine": "docker", "name": "datahub-opensearch-1", "image": "opensearch",
+                                                      "project": "datahub", "service": "opensearch", "created": "2026-11-15 10:00:00 -0500 EST"}
+        proc = make_proc(130, 1, "java", cgroup="/system.slice/docker-15615e12e214959e2592dce404c0708787aa9ee1b7cbd4f3c0e0cdf803b22b58.scope")
+        group = pt.Group(key="k", name="x", prov=classifier.from_cgroup(proc), procs=[proc], targets=[],
+                         launches=[pt.parse_cgroup_launch(proc.cgroup)])
+        pt.finish_group(group, {}, {}, owners, "/home/u")
+        self.assertIn("docker compose -p datahub stop opensearch", group.stop_hint)
+        self.assertNotIn("kill", group.stop_hint.split("(")[0])
+        self.assertIn("restart:", group.disable_hint)
+
+    def test_startup_hints_are_not_repeated(self):
+        prov = pt.Provenance(kind="system-package", name="containerd.io")
+        group = pt.Group(key="k", name="containerd.io", prov=prov, procs=[make_proc(140, 1, "containerd")], targets=[],
+                         launches=[pt.Launch("system-service", "x", unit="containerd.service", scope="system")])
+        group.disable_hint = "`sudo systemctl disable --now containerd.service`"
+        item = pt.StartupItem(kind="system-unit", name="containerd.service", location="/usr/lib/systemd/system/containerd.service",
+                              off_hint="`sudo systemctl disable --now containerd.service` (or mask)")
+        pt.link_startup([item], [group])
+        self.assertEqual(group.disable_hint.count("containerd.service"), 1)
+
+    def test_unit_notes(self):
+        self.assertIn("cloud", pt.unit_note("cloud-init-local.service"))
+        self.assertEqual(pt.unit_note("NetworkManager.service"), "")
+
+
 if __name__ == "__main__":
     unittest.main()

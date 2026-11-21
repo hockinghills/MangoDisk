@@ -40,7 +40,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -554,6 +554,8 @@ class Provenance:
     location: Optional[str] = None
     remove_hint: Optional[str] = None
     notes: List[str] = field(default_factory=list)
+    stop_hint: Optional[str] = None     # overrides the generic hint (containers)
+    disable_hint: Optional[str] = None
     manual: Optional[bool] = None  # distro package explicitly installed (vs dependency)
 
     @property
@@ -691,17 +693,15 @@ class PackageOwners:
                         return float(match.group(1))
         return None
 
-    def _apt_history(self) -> Dict[str, Tuple[float, bool]]:
-        """Packages named in apt (or Discover/PackageKit) installs: name -> (date, part of a bulk transaction)."""
-        if hasattr(self, "_requested"):
-            return self._requested
+    def _apt_history(self) -> Dict[str, Tuple[float, str, str, bool]]:
+        """First apt record per package: name -> (date, what ran it, asked|bulk|dependency, part of a burst)."""
+        if hasattr(self, "_records"):
+            return self._records
         import gzip
-        requested: Dict[str, Tuple[float, bool]] = {}
-        self.came_with: Dict[str, Tuple[float, str]] = {}
+        records: Dict[str, Tuple[float, str, str, bool]] = {}
         self.history_start: Optional[float] = None
-        transactions: List[Tuple[float, List[str], str, List[str]]] = []
-        paths = sorted(glob.glob(self.apt_history_glob), reverse=True)
-        for path in paths:
+        transactions: List[Tuple[float, Set[str], Set[str], Set[str], str]] = []
+        for path in sorted(glob.glob(self.apt_history_glob), reverse=True):
             try:
                 opener = gzip.open if path.endswith(".gz") else open
                 with opener(path, "rt", errors="replace") as handle:
@@ -715,47 +715,49 @@ class PackageOwners:
                 except ValueError:
                     continue
                 command = fields.get("Commandline", "")
-                names: List[str] = []
-                if command:
-                    words = command.split()
-                    if "install" in words:
-                        for word in words[words.index("install") + 1:]:
-                            if word.startswith("-"):
-                                continue
-                            names.append(os.path.basename(word).split("_")[0] if word.endswith(".deb") else word.split("=")[0].split(":")[0])
-                elif fields.get("Install") and fields.get("Requested-By"):
-                    # PackageKit (Discover) transactions carry no command line; skip pulled-in dependencies.
-                    names = [name for name, detail in re.findall(r"([^\s,:]+)(?::[^\s,]+)? \(([^)]*)\)", fields["Install"])
-                             if "automatic" not in detail]
-                installed = [entry for entry, _ in re.findall(r"([^\s,:]+)(?::[^\s,]+)? \(([^)]*)\)", fields.get("Install", ""))]
-                origin = command or ("Discover/PackageKit" if fields.get("Requested-By") else "an automatic update")
-                transactions.append((when, names, origin, installed))
-        transactions.sort()
+                named: Set[str] = set()
+                words = command.split()
+                if "install" in words:
+                    for word in words[words.index("install") + 1:]:
+                        if not word.startswith("-"):
+                            named.add(os.path.basename(word).split("_")[0] if word.endswith(".deb") else word.split("=")[0].split(":")[0])
+                entries = re.findall(r"([^\s,:]+)(?::[^\s,]+)? \(([^)]*)\)", fields.get("Install", ""))
+                # apt marks only what was asked for as non-automatic, which also covers local .deb files
+                # whose file name differs from the package name and Discover installs.
+                asked = named | {name for name, detail in entries if "automatic" not in detail}
+                automatic = {name for name, detail in entries if "automatic" in detail}
+                if command.startswith("packagekit"):
+                    origin = "Discover/PackageKit"
+                else:
+                    origin = command or ("Discover/PackageKit" if fields.get("Requested-By") else "an automatic update")
+                if asked or automatic:
+                    transactions.append((when, asked, automatic, named, origin))
+        transactions.sort(key=lambda t: t[0])
         if transactions:
             self.history_start = transactions[0][0]
         times = [t[0] for t in transactions if t[1]]
-        for when, names, origin, installed in transactions:
-            # Many installs within minutes of each other is an install script, not someone picking packages.
+        for when, asked, automatic, named, origin in transactions:
+            # Many installs within minutes of each other is an install script, not someone picking packages;
+            # one transaction naming many packages is a desktop install, release upgrade or script.
             burst = sum(1 for t in times if abs(t - when) <= 20 * 60) >= 6
-            # A transaction naming many packages is a desktop switch, release upgrade or script.
-            bulk = len(names) > 8 or burst
-            for name in names:
-                if name not in requested or (requested[name][1] and not bulk):
-                    requested[name] = (when, bulk)
-            for name in installed:
-                self.came_with[name] = (when, ("part of a burst of apt installs (an install script); " if burst else "") + origin)
-        self._requested = requested
-        return requested
+            bulk = len(asked) > 8 or burst
+            for name, kind in [(n, "bulk" if bulk else "asked") for n in asked] + [(n, "dependency") for n in automatic - asked]:
+                if name not in records:
+                    records[name] = (when, origin, kind, burst)
+                elif kind == "asked" and records[name][2] != "asked":
+                    first = records[name]
+                    records[name] = (first[0], first[1], "asked", first[3])
+        self._records = records
+        return records
 
     def came_with_note(self, package: str) -> Optional[str]:
-        if self.manager != "dpkg":
+        record = self._apt_history().get(package) if self.manager == "dpkg" else None
+        if not record:
             return None
-        self._apt_history()
-        entry = self.came_with.get(package)
-        if not entry:
-            return None
-        when, origin = entry
-        return f"installed {fmt_date(when)} by `{redact_text(origin)[:140]}`"
+        when, origin, kind, burst = record
+        prefix = "in a burst of apt installs (an install script): " if burst else ""
+        suffix = " (as a dependency)" if kind == "dependency" else ""
+        return f"installed {fmt_date(when)} by {prefix}`{redact_text(origin)[:140]}`{suffix}"
 
     def history_covers_install(self) -> bool:
         """True when apt history reaches back to when this system was installed."""
@@ -764,18 +766,18 @@ class PackageOwners:
         return bool(self.history_start and installed and self.history_start <= installed + 3 * 86400)
 
     def requested_at(self, package: str) -> Optional[float]:
-        entry = self._apt_history().get(package) if self.manager == "dpkg" else None
-        return entry[0] if entry else None
+        record = self._apt_history().get(package) if self.manager == "dpkg" else None
+        return record[0] if record else None
 
     def is_manual(self, package: str) -> Optional[bool]:
-        entry = self._apt_history().get(package) if self.manager == "dpkg" else None
-        if entry and not entry[1]:
+        record = self._apt_history().get(package) if self.manager == "dpkg" else None
+        if record and record[2] == "asked":
             return True
         if self.manager == "dpkg" and DESKTOP_BUNDLED.match(package):
             return None  # most likely came with the desktop install, whatever apt-mark says
-        if self.manager == "dpkg" and entry:
-            return None  # named only in a bulk or scripted install
-        if self.manager == "dpkg" and package in self.came_with:
+        if record and record[2] == "bulk":
+            return None  # part of a bulk or scripted install
+        if record and record[2] == "dependency":
             return False  # pulled in as a dependency of something else
         if self.manager == "dpkg" and self.history_covers_install():
             return None  # never asked for since the system was installed: it came with the system
@@ -1098,16 +1100,22 @@ class Classifier:
                     created = dt.datetime.strptime(info["created"][:19], "%Y-%m-%d %H:%M:%S").timestamp()
                 except ValueError:
                     pass
+                engine, name = info["engine"], info["name"]
                 notes = [f"image `{info['image']}`", f"container id {cid}"]
                 if info["project"]:
-                    notes.append(f"compose project `{info['project']}`, service `{info['service']}`")
-                    hint = (f"`{info['engine']} compose -p {info['project']} stop {info['service']}` now; to keep it off, remove the service "
-                            f"or its `restart:` policy from the compose file, or `{info['engine']} compose -p {info['project']} down`")
+                    project, service = info["project"], info["service"]
+                    notes.append(f"compose project `{project}`, service `{service}`")
+                    stop = f"`{engine} compose -p {project} stop {service}` (killing its process makes Docker restart it)"
+                    keep = (f"remove `restart:` from service `{service}` in the `{project}` compose file, "
+                            f"or `{engine} update --restart=no {name}`")
+                    remove = f"`{engine} compose -p {project} down` removes the whole `{project}` project"
                 else:
-                    hint = (f"`{info['engine']} stop {info['name']}`; to keep it off: `{info['engine']} update --restart=no {info['name']}`, "
-                            f"or remove it with `{info['engine']} rm {info['name']}`")
-                return Provenance(kind="container", name=info["name"], location=cid, installed_at=created,
-                                  date_note="container created" if created else "", remove_hint=hint, notes=notes)
+                    stop = f"`{engine} stop {name}` (killing its process makes Docker restart it)"
+                    keep = f"`{engine} update --restart=no {name}`"
+                    remove = f"`{engine} rm -f {name}`"
+                return Provenance(kind="container", name=name, location=cid, installed_at=created,
+                                  date_note="container created" if created else "", remove_hint=remove, notes=notes,
+                                  stop_hint=stop, disable_hint=keep)
             return Provenance(
                 kind="container", name=f"{engine} container {cid} ({proc.comm})", location=cid,
                 remove_hint=f"`{engine} ps` to identify it, then `{engine} stop {cid}`; remove its restart policy or compose service so it stays off",
@@ -1124,7 +1132,9 @@ class Classifier:
             if project:
                 notes.append(f"{cli} project `{project}`")
             return Provenance(kind="container", name=f"{name} (LXC)", location=f"lxc:{raw}", notes=notes,
-                              remove_hint=f"`{cli} stop {name}{flag}`; to keep it from starting at boot: `{cli} config set {name}{flag} boot.autostart=false`")
+                              stop_hint=f"`{cli} stop {name}{flag}`",
+                              disable_hint=f"`{cli} config set {name}{flag} boot.autostart=false`",
+                              remove_hint=f"`{cli} delete {name}{flag}` (deletes the container and its data)")
         flatpak = proc.flatpak_id
         if not flatpak:
             match = re.search(r"app-flatpak-(.+?)-[0-9a-zA-Z]+\.scope", cg)
@@ -1231,7 +1241,7 @@ class Classifier:
                 came = self.owners.came_with_note(pkg)
                 return Provenance(
                     kind="system-package", name=pkg, location=pkg, installed_at=asked or self.owners.installed_at(pkg),
-                    date_note="you ran apt install" if asked and manual else ("apt history" if asked else "install or last upgrade"),
+                    date_note="you installed it" if asked and manual else ("apt history" if asked else "install or last upgrade"),
                     manual=manual, notes=[came] if came else [],
                     remove_hint=f"`{self.owners.front} {pkg}`" if self.owners.front else None,
                 )
@@ -1540,6 +1550,8 @@ def describe_parents(proc: Proc, table: Dict[int, Proc]) -> List[str]:
 def refine_launch(launch: Launch, proc: Proc, table: Dict[int, Proc], group_of: Dict[int, str]) -> Launch:
     launch.parent_chain = describe_parents(proc, table)
     launch.leaf = proc.comm
+    if launch.unit == "plasma-plasmashell.service" and proc.comm != "plasmashell":
+        launch.kind, launch.detail = "widget", "run by Plasma (a panel widget or plasmoid)"
     if launch.kind == "cron" and proc.comm in ("cron", "crond", "cronie", "fcron"):
         launch.kind, launch.detail = "system-service", f"system service `{launch.unit}`"
     chain = launch.parent_chain
@@ -1613,6 +1625,7 @@ OPTIONAL_TIPS = {
     "drkonqi-coredump-launcher": "KDE's crash reporter, handling a crash that just happened. It exits on its own.",
     "drkonqi-coredump-processor": "KDE's crash reporter, handling a crash that just happened. It exits on its own.",
     "drkonqi": "KDE's crash reporter. It exits on its own.",
+    "intel_gpu_top": "Intel GPU monitor. Something (a Plasma system-monitor widget, Netdata's GPU collector) runs it over and over; each run costs CPU.",
     "mount.ntfs-3g": "FUSE driver serving an NTFS drive you mounted. It stays until you unmount it (`umount <mount point>`).",
     "mount.ntfs": "FUSE driver serving an NTFS drive you mounted. It stays until you unmount it (`umount <mount point>`).",
     "dockerd": "Docker engine. Disable with `sudo systemctl disable --now docker.service docker.socket` if you only use it occasionally.",
@@ -1648,6 +1661,34 @@ PACKAGE_TIPS = {
     "lemonade-server": "Lemonade local-LLM server.",
 }
 
+UNIT_NOTES = {
+    "cloud-": "cloud-init configures cloud VMs at boot; a desktop doesn't need it (`sudo touch /etc/cloud/cloud-init.disabled` turns it all off)",
+    "spice-vdagent": "only useful inside a virtual machine",
+    "whoopsie": "sends crash reports to Ubuntu",
+    "apport": "crash reporting",
+    "motd-news": "fetches news for the terminal login message",
+    "ua-timer": "Ubuntu Pro status checks",
+    "ubuntu-advantage": "Ubuntu Pro",
+    "nvmf-": "NVMe over network fabrics: server storage, not needed on a desktop",
+    "nvmefc-": "NVMe over network fabrics: server storage, not needed on a desktop",
+    "quota": "disk quotas, used by hosting setups",
+    "rpcbind": "needed only for NFS file sharing",
+    "konqy_preload": "keeps Konqueror preloaded",
+    "certbot": "renews TLS certificates for a web server",
+    "phpsessionclean": "cleans PHP sessions for a web server",
+    "fcgiwrap": "CGI for a web server",
+    "openvpn": "OpenVPN connections configured in /etc/openvpn",
+    "qemu-kvm": "KVM virtual machines",
+    "sysstat": "collects performance history (sar)",
+    "etckeeper": "keeps /etc under version control",
+    "emby-server": "Emby media server",
+}
+
+
+def unit_note(name: str) -> str:
+    return next((note for prefix, note in UNIT_NOTES.items() if name.startswith(prefix)), "")
+
+
 IDLE_AVG_CPU = 0.2   # percent of one core since start
 IDLE_MIN_UPTIME = 6 * 3600
 HOG_KB = 150 * 1024
@@ -1676,7 +1717,7 @@ def safety_class(name, comm, prov: Provenance, launch_kinds: Set[str]) -> str:
         return "yours"
     if names & set(OPTIONAL_TIPS):
         return "optional"
-    if "session" in launch_kinds and prov.kind == "system-package" and not prov.manual:
+    if launch_kinds == {"session"} and prov.kind == "system-package" and not prov.manual:
         return "core"
     if names & SHELLS:
         return "system"
@@ -2118,7 +2159,10 @@ def link_startup(items: List[StartupItem], groups: List[Group]) -> None:
                     break
         if group:
             item.running = f"{group.name} ({fmt_bytes(group.mem_kb)})"
-            if item.off_hint and item.enabled and item.off_hint not in (group.disable_hint or ""):
+            existing = group.disable_hint or ""
+            covered = (item.kind.endswith("-unit") and item.name in existing) or \
+                (item.kind.startswith("autostart") and "Autostart" in existing)
+            if item.off_hint and item.enabled and not covered:
                 group.disable_hint = "; ".join(filter(None, [group.disable_hint, f"{item.off_hint} (startup entry `{item.name}`)"]))
 
 
@@ -2160,10 +2204,14 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
                                 "`~/.config/autostart` that survives updates; don't delete the file in /etc)")
         elif launch.kind == "cron":
             disables.append("`crontab -e` (or check /etc/cron.d) and remove the job")
-        elif launch.kind == "container":
-            disables.append("change the container's restart policy (`docker update --restart=no <id>`) or its compose file")
+        elif launch.kind == "container" and not group.prov.disable_hint:
+            disables.append("change the container's restart policy (`docker update --restart=no <name>`) or its compose file")
     if group.prov.kind == "flatpak":
         stops.insert(0, f"`flatpak kill {group.prov.name}`")
+    if group.prov.stop_hint:
+        stops = [group.prov.stop_hint]
+    if group.prov.disable_hint:
+        disables.insert(0, group.prov.disable_hint)
     if not stops:
         stops.append(f"quit it normally, or `kill {pids}`")
     if group.mentions and not disables:
@@ -2182,12 +2230,18 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
             + ("; see tip" if group.tip else "")
     elif group.cls == "system" and group.tip:
         group.verdict = ("idle and big; see tip" if group.idle and big else "system service; see tip")
+    elif group.cls == "system" and NOW - group.oldest_start < 120 and {l.kind for l in group.launches} <= {"terminal", "ssh", "child"}:
+        group.verdict = "a command you just started in a terminal"
+    elif group.cls == "system" and "widget" in {l.kind for l in group.launches}:
+        group.verdict = "run by a Plasma widget" + (f"; costs {group.cpu_avg:.1f}% CPU on average" if group.cpu_avg >= 1 else "")
     elif group.cls == "system":
         group.verdict = "system component; leave it unless you know you don't need it"
     elif group.idle and big:
         group.verdict = "IDLE HOG: big and doing nothing; good candidate to stop or disable"
     elif group.idle:
         group.verdict = "idle; candidate if you don't recognize it"
+    elif NOW - group.oldest_start < 120 and {l.kind for l in group.launches} <= {"terminal", "ssh", "child"}:
+        group.verdict = "a command you just started in a terminal"
     elif group.cpu_now >= 25:
         group.verdict = f"busy right now ({group.cpu_now:.0f}% CPU)"
     else:
@@ -2296,6 +2350,46 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
         print(style.dim("\n* memory is RSS (shared pages counted more than once); run with sudo for exact figures on other users' processes."))
 
 
+def detail_lines(g: Group) -> List[str]:
+    """Everything known about one program, as Markdown list lines."""
+    p = g.prov
+    out: List[str] = [f"- **Verdict:** {g.verdict}"]
+    if g.tip:
+        out.append(f"- **About it:** {g.tip}")
+    out.append(f"- **Installed via:** {installed_text(p).split(',')[0] if p.kind == 'system-package' else KIND_LABELS.get(p.kind, p.kind)}"
+               + (f", version {p.version}" if p.version else ""))
+    if p.installed_at:
+        out.append(f"- **Installed:** {fmt_date(p.installed_at)} ({p.date_note})")
+    if p.source:
+        out.append(f"- **Came from:** {p.source}")
+    if p.location and p.kind != "system-package":
+        out.append(f"- **Lives at:** `{Paths.show(p.location)}`")
+    out.extend(f"- {note}" for note in p.notes)
+    out.append("- **Started by:** " + "; ".join(l.detail for l in g.launches))
+    chains = {" › ".join(list(reversed(l.parent_chain)) + [l.leaf or g.procs[0].comm]) for l in g.launches if l.parent_chain}
+    out.extend(f"  - process tree: {chain}" for chain in sorted(chains)[:3])
+    for unit, info in g.unit_files.items():
+        out.append(f"  - `{unit}`: {info['state'] or 'transient'}, file `{Paths.show(info['file'])}` ({info['origin']})")
+    out.extend(f"- **Mentioned in:** {mention}" for mention in g.mentions)
+    if g.seen:
+        out.append(f"- **History:** {g.seen}")
+    out.append(f"- **Uses:** {fmt_bytes(g.mem_kb)} memory" + (f" + {fmt_bytes(g.swap_kb)} swap" if g.swap_kb else "") +
+               f", {g.cpu_now:.1f}% CPU now, {g.cpu_avg:.2f}% on average since it started {fmt_age(NOW - g.oldest_start)} ago, "
+               f"{len(g.procs)} process(es)")
+    out.append(f"- **Stop it now:** {g.stop_hint}")
+    if g.disable_hint:
+        out.append(f"- **Keep it from starting:** {g.disable_hint}")
+    if p.remove_hint:
+        out.append(f"- **Remove it:** {p.remove_hint}")
+    out.append("- **Processes:**")
+    for proc in sorted(g.procs, key=lambda x: -(x.pss_kb or x.rss_kb))[:8]:
+        cmd = " ".join(redact_argv(proc.cmdline))[:240] or proc.comm
+        out.append(f"  - pid {proc.pid}, {fmt_bytes(proc.pss_kb or proc.rss_kb)}: `{Paths.show_all(cmd)}`")
+    if len(g.procs) > 8:
+        out.append(f"  - … and {len(g.procs) - 8} more")
+    return out
+
+
 def markdown_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str, int], meta: Dict[str, str]) -> str:
     out = io.StringIO()
     w = out.write
@@ -2312,53 +2406,18 @@ def markdown_report(groups: List[Group], items: List[StartupItem], meminfo: Dict
         w(f"| {index} | {fmt_bytes(g.mem_kb)}{'' if g.mem_is_pss else '*'} | {g.cpu_now:.1f}% | {g.cpu_avg:.2f}% | "
           f"{cell(g.name)} | {cell(installed_text(g.prov))} | {cell(launch_text(g))} | {cell(g.verdict)} |\n")
     w("\n\\* RSS instead of PSS: shared memory is counted more than once (no permission to read exact figures).\n\n")
-    w("## Details for things you or a side installer added\n\n")
-    for g in [g for g in groups if g.cls in ("yours", "optional")]:
-        p = g.prov
+    w("## Details for things you, a side installer or a service stack added\n\n")
+    for g in [g for g in groups if g.cls in ("yours", "optional") or (g.cls == "system" and g.tip)]:
         w(f"### {g.name}\n\n")
-        w(f"- **Verdict:** {g.verdict}\n")
-        if g.tip:
-            w(f"- **About it:** {g.tip}\n")
-        w(f"- **Installed via:** {KIND_LABELS.get(p.kind, p.kind)}" + (f", version {p.version}" if p.version else "") + "\n")
-        if p.installed_at:
-            w(f"- **Installed:** {fmt_date(p.installed_at)} ({p.date_note})\n")
-        if p.source:
-            w(f"- **Came from:** {p.source}\n")
-        if p.location:
-            w(f"- **Lives at:** `{Paths.show(p.location)}`\n")
-        for note in p.notes:
-            w(f"- {note}\n")
-        w(f"- **Started by:** " + "; ".join(l.detail for l in g.launches) + "\n")
-        chains = {" › ".join(list(reversed(l.parent_chain)) + [l.leaf or g.procs[0].comm]) for l in g.launches if l.parent_chain}
-        for chain in sorted(chains)[:3]:
-            w(f"  - process tree: {chain}\n")
-        for unit, info in g.unit_files.items():
-            w(f"  - `{unit}`: {info['state'] or 'transient'}, file `{Paths.show(info['file'])}` ({info['origin']})\n")
-        for mention in g.mentions:
-            w(f"- **Mentioned in:** {mention}\n")
-        if g.seen:
-            w(f"- **History:** {g.seen}\n")
-        w(f"- **Uses:** {fmt_bytes(g.mem_kb)} memory" + (f" + {fmt_bytes(g.swap_kb)} swap" if g.swap_kb else "") +
-          f", {g.cpu_now:.1f}% CPU now, {g.cpu_avg:.2f}% on average since it started {fmt_age(NOW - g.oldest_start)} ago, "
-          f"{len(g.procs)} process(es)\n")
-        w(f"- **Stop it now:** {g.stop_hint}\n")
-        if g.disable_hint:
-            w(f"- **Keep it from starting:** {g.disable_hint}\n")
-        if p.remove_hint:
-            w(f"- **Remove it:** {p.remove_hint}\n")
-        w("- **Processes:**\n")
-        for proc in sorted(g.procs, key=lambda x: -(x.pss_kb or x.rss_kb))[:8]:
-            cmd = " ".join(redact_argv(proc.cmdline))[:240] or proc.comm
-            w(f"  - pid {proc.pid}, {fmt_bytes(proc.pss_kb or proc.rss_kb)}: `{Paths.show_all(cmd)}`\n")
-        if len(g.procs) > 8:
-            w(f"  - … and {len(g.procs) - 8} more\n")
+        w("".join(line + "\n" for line in detail_lines(g)))
         w("\n")
     w("## Everything set to start automatically\n\n")
-    w("| Name | Kind | Running now | Origin | Where | Turn off |\n|---|---|---|---|---|---|\n")
+    w("| Name | Kind | Running now | Origin | Note | Where | Turn off |\n|---|---|---|---|---|---|---|\n")
     for item in sorted(items, key=lambda i: (not i.third_party, i.kind, i.name.lower())):
         cell = lambda t: str(t).replace("|", "\\|").replace("\n", " ")
         w(f"| {cell(item.name)} | {item.kind}{'' if item.enabled else ' (disabled)'} | {cell(item.running or '—')} | "
-          f"{cell(item.origin)} | `{cell(Paths.show(item.location))}` | {cell(item.off_hint)} |\n")
+          f"{cell(item.origin)} | {cell(unit_note(os.path.basename(item.location) or item.name))} | "
+          f"`{cell(Paths.show(item.location))}` | {cell(item.off_hint)} |\n")
     w("\n")
     return out.getvalue()
 
@@ -2411,15 +2470,8 @@ def explain(groups: List[Group], query: str, style: Style) -> None:
         return
     for g in hits[:5]:
         print(style.bold(g.name))
-        report = markdown_report([g], [], {}, {"host": "", "time_text": "", "desktop": "", "distro": ""})
-        section = report.split("### ", 1)[1] if "### " in report else ""
-        for line in section.splitlines()[1:]:
-            if line.startswith("## "):
-                break
-            if line.strip():
-                print("  " + line.replace("**", ""))
-        if g.cls not in ("yours", "optional"):
-            print(f"  - Installed via: {installed_text(g.prov)}\n  - Started by: {launch_text(g)}\n  - Verdict: {g.verdict}")
+        for line in detail_lines(g):
+            print("  " + line.replace("**", ""))
         print()
 
 
