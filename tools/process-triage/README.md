@@ -60,6 +60,14 @@ service, the container, or (for anything else) every process with that program's
 which. Use `--netdata URL` for a different agent and `--no-netdata` to skip it. Only Netdata's read-only query API
 is used.
 
+Program charts are matched only to a row's main process, never to a child it started. When a program-name chart
+also counts processes in other rows (several `cloudflared` tunnels, say), the row says so. When Netdata lists a
+chart but refuses the query, the row gives Netdata's reason and the next candidate chart is tried.
+
+Memory over the week: the report starts with the machine's RAM and swap in use, one daily average per day, and
+lists the rows whose memory (RAM + swap) rose steadily over those days. Verdicts take the week into account, so a
+row that is quiet right now but moved gigabytes over the network this week is not called idle.
+
 ## Privacy
 
 Everything stays on your machine. Before anything is printed or saved, command-line values that look like

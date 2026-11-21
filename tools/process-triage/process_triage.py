@@ -37,12 +37,13 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.6.1"
+VERSION = "0.7.0"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -1596,7 +1597,7 @@ CORE_NAMES = {
 CORE_PREFIXES = ("systemd-", "kworker", "xdg-", "at-spi", "gvfs", "ibus", "fcitx", "sddm", "dbus-")
 
 OPTIONAL_TIPS = {
-    "baloo_file": "KDE file-search indexer, often the biggest idle hog. Turn off in System Settings > Search > File Search, or `balooctl6 disable` (`balooctl` on Plasma 5).",
+    "baloo_file": "KDE file-search indexer; indexing can use a lot of CPU, disk and memory. Turn off in System Settings > Search > File Search, or `balooctl6 disable` (`balooctl` on Plasma 5).",
     "baloo_file_extractor": "Part of the KDE file indexer (see baloo_file).",
     "baloorunner": "Part of the KDE file indexer (see baloo_file).",
     "akonadiserver": "KDE PIM backend (KMail, Kontact, calendar sync). If you don't use those apps: `akonadictl stop`; uninstalling the kdepim apps keeps it from coming back.",
@@ -2229,28 +2230,53 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
     group.stop_hint = "; ".join(dict.fromkeys(stops))
     group.disable_hint = "; ".join(dict.fromkeys(disables)) or None
 
-    big = group.mem_kb + group.swap_kb >= HOG_KB
+    set_verdict(group)
+
+
+def week_activity(group: Group) -> str:
+    """What Netdata saw a row do over the last 7 days (empty when it saw nothing worth mentioning)."""
+    h = group.history or {}
+    parts = []
+    if isinstance(h.get("cpu_avg_7d"), (int, float)) and h["cpu_avg_7d"] >= 0.5:
+        parts.append(f"{h['cpu_avg_7d']:.1f}% CPU on average")
+    if h.get("net_bytes_7d", 0) >= 200 * 1024 ** 2:
+        parts.append(f"{fmt_volume(h['net_bytes_7d'])} of network traffic")
+    return " and ".join(parts)
+
+
+def set_verdict(group: Group) -> None:
+    """One factual line per row. Runs again after Netdata history is read, so a row that is quiet in
+    this snapshot but busy over the week is not called idle."""
+    held = group.mem_kb + group.swap_kb
+    big = held >= HOG_KB
+    busy_week = week_activity(group)
+    idle = group.idle and not busy_week
+    quiet = f"quiet right now, but {busy_week} over the last 7 days" if group.idle and busy_week else ""
+    week_idle = isinstance(group.history.get("cpu_avg_7d"), (int, float)) and group.history["cpu_avg_7d"] < 0.05
+    idle_text = ("idle all week" if week_idle else "idle") + (f", holding {fmt_bytes(held)}" if big else "")
+    launch_kinds = {l.kind for l in group.launches}
+    just_started = NOW - group.oldest_start < 120 and launch_kinds <= {"terminal", "ssh", "child"} and launch_kinds & {"terminal", "ssh"}
     other_user = os.geteuid() != 0 and all(p.uid != os.geteuid() for p in group.procs)
     if group.prov.kind == "unknown" and other_user:
         group.verdict = "belongs to another user (usually root); run with sudo to identify it"
     elif group.cls == "core":
         group.verdict = "keep: part of the desktop or system"
     elif group.cls == "optional":
-        group.verdict = ("optional, idle and big" if group.idle and big else "optional, and idle" if group.idle else "optional") \
+        group.verdict = ("optional; " + quiet if quiet else f"optional, {idle_text}" if idle else "optional") \
             + ("; see tip" if group.tip else "")
     elif group.cls == "system" and group.tip:
-        group.verdict = ("idle and big; see tip" if group.idle and big else "system service; see tip")
-    elif group.cls == "system" and NOW - group.oldest_start < 120 and {l.kind for l in group.launches} <= {"terminal", "ssh", "child"} and {l.kind for l in group.launches} & {"terminal", "ssh"}:
+        group.verdict = (quiet or (idle_text if idle else "system service")) + "; see tip"
+    elif group.cls == "system" and just_started:
         group.verdict = "a command you just started in a terminal"
-    elif group.cls == "system" and "widget" in {l.kind for l in group.launches}:
+    elif group.cls == "system" and "widget" in launch_kinds:
         group.verdict = "run by a Plasma widget" + (f"; costs {group.cpu_avg:.1f}% CPU on average" if group.cpu_avg >= 1 else "")
     elif group.cls == "system":
         group.verdict = "system component; leave it unless you know you don't need it"
-    elif group.idle and big:
-        group.verdict = "IDLE HOG: big and doing nothing; good candidate to stop or disable"
-    elif group.idle:
-        group.verdict = "idle; candidate if you don't recognize it"
-    elif NOW - group.oldest_start < 120 and {l.kind for l in group.launches} <= {"terminal", "ssh", "child"} and {l.kind for l in group.launches} & {"terminal", "ssh"}:
+    elif quiet:
+        group.verdict = quiet
+    elif idle:
+        group.verdict = idle_text
+    elif just_started:
         group.verdict = "a command you just started in a terminal"
     elif group.cpu_now >= 25:
         group.verdict = f"busy right now ({group.cpu_now:.0f}% CPU)"
@@ -2261,7 +2287,7 @@ def finish_group(group: Group, user_details: Dict[str, Dict[str, str]], system_d
 GENERIC_APP_NAMES = {"node", "nodejs", "java", "python", "python3", "bash", "sh", "dash", "zsh", "ruby", "perl", "php", "bun",
                      "deno", "main", "MainThread", "node-MainThread", "entrypoint", "entrypoint_sh", "docker-entrypoi",
                      "docker-entrypoint", "healthcheck", "healthcheck_sh", "sleep", "cat", "curl", "agent", "cli", "build",
-                     "desktop", "daily", "backup", "null", "kernel", "louthenw", "chmod", "sudo"}
+                     "desktop", "daily", "backup", "null", "kernel", "chmod", "sudo"}
 
 
 class NetdataHistory:
@@ -2274,15 +2300,28 @@ class NetdataHistory:
         self.first_entry: Optional[float] = None
         self.available = False
         self.errors: List[str] = []
+        self.failures: Dict[str, str] = {}
 
-    def _get(self, path: str) -> Optional[dict]:
+    def _get(self, path: str, label: str = "") -> Optional[dict]:
+        label = label or path.split("?")[0]
         for attempt in range(2):
             try:
                 with urllib.request.urlopen(self.base + path, timeout=self.timeout * (attempt + 1)) as response:
                     return json.loads(response.read().decode("utf-8", "replace"))
+            except urllib.error.HTTPError as error:
+                try:
+                    body = error.read(300).decode("utf-8", "replace").strip()
+                except OSError:
+                    body = ""
+                reason = f"HTTP {error.code}" + (f": {body.splitlines()[0][:120]}" if body else "")
+                if error.code < 500 or attempt:
+                    self.failures[label] = reason
+                    self.errors.append(f"`{label}`: {reason}")
+                    return None
             except (OSError, ValueError) as error:
                 if attempt:
-                    self.errors.append(f"{path.split('?')[0]}: {error}")
+                    self.failures[label] = str(error)
+                    self.errors.append(f"`{label}`: {error}")
         return None
 
     def connect(self) -> bool:
@@ -2295,88 +2334,153 @@ class NetdataHistory:
         self.available = bool(self.charts)
         return self.available
 
-    def series(self, chart: str, seconds: int, points: int) -> List[float]:
-        """Per-interval totals across the chart's dimensions (absolute values), oldest first."""
-        query = urllib.parse.urlencode({"chart": chart, "after": -seconds, "points": points, "group": "average",
-                                        "format": "json", "options": "abs"})
-        data = self._get(f"/api/v1/data?{query}") or {}
-        totals = []
+    def series_points(self, chart: str, seconds: int, points: int, dims: str = "") -> List[Tuple[float, float]]:
+        """(time, total across the chart's dimensions) per interval, oldest first. Netdata sends newest first."""
+        params = {"chart": chart, "after": -seconds, "points": points, "group": "average", "format": "json", "options": "abs"}
+        if dims:
+            params["dimensions"] = dims
+        data = self._get(f"/api/v1/data?{urllib.parse.urlencode(params)}", chart) or {}
+        rows = []
         for row in data.get("data") or []:
-            values = [v for v in row[1:] if isinstance(v, (int, float))]
+            if not row or not isinstance(row[0], (int, float)):
+                continue
+            values = [abs(v) for v in row[1:] if isinstance(v, (int, float))]
             if values:
-                totals.append(float(sum(values)))
-        return totals
+                rows.append((float(row[0]), float(sum(values))))
+        return sorted(rows)
 
-    def charts_for(self, group: "Group", tried: Optional[List[str]] = None) -> List[Tuple[str, str, str]]:
-        """(metric, chart id, where the numbers come from) for one program row."""
-        found: List[Tuple[str, str, str]] = []
-        tried = tried if tried is not None else []
+    def series(self, chart: str, seconds: int, points: int) -> List[float]:
+        return [value for _, value in self.series_points(chart, seconds, points)]
+
+    def system_memory(self) -> Dict[str, List[Tuple[float, float]]]:
+        """Daily averages (MiB) of RAM and swap in use over the last 7 days."""
+        out = {}
+        for key, chart in (("ram", "system.ram"), ("swap", "mem.swap")):
+            if chart in self.charts:
+                points = self.series_points(chart, 7 * 86400, 7, "used")
+                if points:
+                    out[key] = points
+        return out
+
+    def sources_for(self, group: "Group", tried: List[str]) -> List[Tuple[str, Dict[str, object]]]:
+        """Candidate chart sets for one row, best first: (where the numbers come from, charts by metric)."""
+        sources: List[Tuple[str, Dict[str, object]]] = []
         prov = group.prov
         if prov.kind == "container" and not prov.name.startswith(("docker container", "podman container")):
             name = prov.name.replace(" (LXC)", "")
             prefix = f"cgroup_{name}."
             if prefix + "cpu" in self.charts:
-                found.append(("cpu", prefix + "cpu", f"container `{name}`"))
-                for chart in sorted(c for c in self.charts if c.startswith(prefix + "net_")):
-                    suffix = chart[len(prefix) + 4:]
-                    if suffix and not re.match(r"(carrier|drops|errors|events|packets|fifo|operstate|mtu|speed|duplex)_", suffix):
-                        found.append(("net", chart, f"container `{name}`"))
-                return found
+                nets = [c for c in sorted(self.charts) if c.startswith(prefix + "net_") and c[len(prefix) + 4:]
+                        and not re.match(r"(carrier|drops|errors|events|packets|fifo|operstate|mtu|speed|duplex)_", c[len(prefix) + 4:])]
+                sources.append((f"container `{name}`", {"cpu": prefix + "cpu", "net": nets,
+                                                        "mem": [c for c in (prefix + "mem_usage",) if c in self.charts]}))
+                return sources
         for launch in group.launches:
-            if launch.kind in ("system-service",) and launch.unit and launch.unit.endswith(".service"):
-                stem = launch.unit[: -len(".service")].replace("@", "_")
-                if f"systemd_{stem}.cpu" in self.charts:
-                    found.append(("cpu", f"systemd_{stem}.cpu", f"service `{launch.unit}`"))
-                    if f"systemd_{stem}.io" in self.charts:
-                        found.append(("disk", f"systemd_{stem}.io", f"service `{launch.unit}`"))
-                    return found
+            if not (launch.unit and launch.unit.endswith(".service")):
+                continue
+            stem = launch.unit[: -len(".service")].replace("@", "_")
+            if launch.kind == "system-service" and f"systemd_{stem}.cpu" in self.charts:
+                prefix = f"systemd_{stem}."
+                sources.append((f"service `{launch.unit}`", {"cpu": prefix + "cpu", "disk": [c for c in (prefix + "io",) if c in self.charts],
+                                                             "mem": [c for c in (prefix + "mem_usage",) if c in self.charts]}))
+            elif launch.kind == "user-service":
+                pattern = re.compile(rf"^(cgroup|systemd)_.*[._]{re.escape(stem)}([._]service)?\.cpu$")
+                hits = [c for c in self.charts if pattern.match(c)]
+                if len(hits) == 1:
+                    prefix = hits[0][: -len("cpu")]
+                    sources.append((f"user service `{launch.unit}`", {"cpu": hits[0], "disk": [c for c in (prefix + "io",) if c in self.charts],
+                                                                      "mem": [c for c in (prefix + "mem_usage",) if c in self.charts]}))
+        pids = {p.pid for p in group.procs}
+        roots = sorted((p for p in group.procs if p.ppid not in pids), key=lambda p: -(p.pss_kb or p.rss_kb)) or group.procs
         names: List[str] = []
-        for proc in group.procs:
+        for proc in roots:
             for candidate in (proc.comm, os.path.basename(proc.exe or ""),
                               os.path.basename(proc.cmdline[0].split()[0]) if proc.cmdline and proc.cmdline[0].strip() else ""):
                 if candidate and candidate not in names:
                     names.append(candidate)
         names += [n for n in (prov.name, group.name.split(" (")[0]) if n and n not in names]
+        skip = GENERIC_APP_NAMES | user_names()
         for name in names:
-            if name in GENERIC_APP_NAMES or len(name) < 3:
+            if name in skip or len(name) < 3:
                 continue
-            chart = f"app.{name}_cpu_utilization"
             tried.append(name)
+            chart = f"app.{name}_cpu_utilization"
             if chart in self.charts:
-                where = f"every process named `{name}`"
-                found.append(("cpu", chart, where))
-                if f"app.{name}_disk_logical_io" in self.charts:
-                    found.append(("disk", f"app.{name}_disk_logical_io", where))
-                return found
-        return found
+                sources.append((f"every process named `{name}`", {
+                    "cpu": chart, "app": name,
+                    "disk": [c for c in (f"app.{name}_disk_logical_io",) if c in self.charts],
+                    "mem": [c for c in (f"app.{name}_mem_usage", f"app.{name}_swap_usage") if c in self.charts]}))
+        return sources
 
     def history_for(self, group: "Group") -> Dict[str, object]:
         tried: List[str] = []
-        charts = self.charts_for(group, tried)
-        if not charts:
+        sources = self.sources_for(group, tried)
+        failed: List[str] = []
+        for where, charts in sources:
+            cpu7 = self.series(charts["cpu"], 7 * 86400, 168)
+            if cpu7:
+                break
+            failed.append(str(charts["cpu"]))
+        else:
+            if failed:
+                return {"no_data": [(chart, self.failures.get(chart, "no data points")) for chart in failed]}
             return {"no_chart": tried} if tried else {}
-        out: Dict[str, object] = {"source": charts[0][2], "chart": charts[0][1]}
-        spans = (("7d", 7 * 86400, 168), ("30d", 30 * 86400, 120))
-        for metric, chart, _ in charts:
-            for label, seconds, points in spans:
-                values = self.series(chart, seconds, points)
+        out: Dict[str, object] = {"source": where, "chart": charts["cpu"],
+                                  "cpu_avg_7d": round(sum(cpu7) / len(cpu7), 3), "cpu_peak_7d": round(max(cpu7), 2)}
+        if charts.get("app"):
+            out["app"] = charts["app"]
+        cpu30 = self.series(charts["cpu"], 30 * 86400, 120)
+        if cpu30:
+            out["cpu_avg_30d"] = round(sum(cpu30) / len(cpu30), 3)
+        week = 7 * 86400
+        for metric in ("net", "disk"):
+            for chart in charts.get(metric) or []:
+                values = self.series(chart, week, 168)
                 if not values:
                     continue
-                window = seconds / len(values) if values else seconds
-                if metric == "cpu":
-                    out[f"cpu_avg_{label}"] = round(sum(values) / len(values), 3)
-                    out[f"cpu_peak_{label}"] = round(max(values), 2)
-                elif metric == "net":
-                    # kilobits per second averaged per interval -> bytes moved in the window
-                    out[f"net_bytes_{label}"] = out.get(f"net_bytes_{label}", 0) + sum(values) * window * 1000 / 8
-                elif metric == "disk":
-                    # KiB per second averaged per interval -> bytes read+written in the window
-                    out[f"disk_bytes_{label}"] = out.get(f"disk_bytes_{label}", 0) + sum(values) * window * 1024
+                window = week / len(values)
+                # net: kilobits/s averaged per interval; disk: KiB/s. Both become bytes moved in the week.
+                factor = 1000 / 8 if metric == "net" else 1024
+                out[f"{metric}_bytes_7d"] = out.get(f"{metric}_bytes_7d", 0) + sum(values) * window * factor
+        daily: Dict[float, float] = {}
+        for chart in charts.get("mem") or []:
+            for when, mib in self.series_points(chart, week, 7):
+                daily[when] = daily.get(when, 0.0) + mib
+        if daily:
+            out["mem_daily"] = [[when, round(mib, 1)] for when, mib in sorted(daily.items())]
+        if failed:
+            out["skipped"] = [(chart, self.failures.get(chart, "no data points")) for chart in failed]
         if self.first_entry and NOW - self.first_entry < 30 * 86400:
             out["since"] = self.first_entry
-        if "cpu_avg_7d" not in out:
-            out["no_data"] = True
         return out
+
+
+def user_names() -> Set[str]:
+    names = {os.environ.get("SUDO_USER", "")}
+    try:
+        names.add(pwd.getpwuid(os.getuid()).pw_name)
+    except KeyError:
+        pass
+    return {n for n in names if n}
+
+
+def memory_trend(daily: Iterable) -> Optional[Dict[str, object]]:
+    """First and last daily memory average (MiB) and whether it rose steadily in between."""
+    points = [(float(t), float(v)) for t, v in daily if v and v > 0]
+    if len(points) < 3:
+        return None
+    (t0, first), (t1, last) = points[0], points[-1]
+    steps = [b - a for (_, a), (_, b) in zip(points, points[1:])]
+    growing = last >= first * 1.25 and last - first >= 100 and sum(step >= 0 for step in steps) >= len(steps) - 1
+    return {"from": first, "to": last, "from_time": t0, "to_time": t1, "growing": growing}
+
+
+def fmt_mib(mib: float) -> str:
+    return fmt_bytes(int(mib * 1024))
+
+
+def fmt_day(epoch: float) -> str:
+    return dt.datetime.fromtimestamp(epoch).strftime("%b %d")
 
 
 def fmt_volume(num_bytes: Optional[float]) -> str:
@@ -2389,10 +2493,8 @@ def history_text(history: Dict[str, object]) -> str:
     if "no_chart" in history:
         return "no matching Netdata chart (looked for program groups: " + ", ".join(f"`{n}`" for n in history["no_chart"][:6]) + ")"
     if history.get("no_data"):
-        return f"Netdata has chart `{history['chart']}` but returned no data for it"
-    parts = []
-    if "cpu_avg_7d" in history:
-        parts.append(f"CPU last 7 days avg {history['cpu_avg_7d']:.2f}% (busiest hour {history['cpu_peak_7d']:.1f}%)")
+        return "Netdata lists " + "; ".join(f"`{chart}` but returned no data for it ({why})" for chart, why in history["no_data"])
+    parts = [f"CPU last 7 days avg {history['cpu_avg_7d']:.2f}% (busiest hour {history['cpu_peak_7d']:.1f}%)"]
     if "cpu_avg_30d" in history:
         since = f" (since {fmt_date(history['since'])})" if history.get("since") else ""
         parts.append(f"last 30 days avg {history['cpu_avg_30d']:.2f}%{since}")
@@ -2400,7 +2502,16 @@ def history_text(history: Dict[str, object]) -> str:
         parts.append(f"network last 7 days {fmt_volume(history['net_bytes_7d'])}")
     if "disk_bytes_7d" in history:
         parts.append(f"disk I/O last 7 days {fmt_volume(history['disk_bytes_7d'])}")
+    trend = memory_trend(history.get("mem_daily") or [])
+    if trend:
+        parts.append(f"memory (RAM + swap, daily average) {fmt_mib(trend['from'])} on {fmt_day(trend['from_time'])} → "
+                     f"{fmt_mib(trend['to'])} on {fmt_day(trend['to_time'])}" + (", rising steadily" if trend["growing"] else ""))
     text = "; ".join(parts) + f" (Netdata chart `{history['chart']}`, {history['source']})"
+    if history.get("shared_with"):
+        text += (f". That chart counts every `{history['app']}` process, including the ones in: "
+                 + ", ".join(f"`{n}`" for n in history["shared_with"]))
+    if history.get("skipped"):
+        text += ". Skipped " + "; ".join(f"`{chart}` ({why})" for chart, why in history["skipped"])
     if history.get("hidden_cpu"):
         text += (f". The processes running now account for only {history['hidden_cpu']:.2f}% on average: most of this CPU is "
                  "spent in short-lived processes it keeps starting (health checks, scripts, helpers), which a snapshot can't see")
@@ -2412,12 +2523,19 @@ def apply_netdata(groups: List[Group], netdata: NetdataHistory) -> None:
         for group, history in zip(groups, pool.map(netdata.history_for, groups)):
             group.history = history
             mark_hidden_cpu(group)
+    for group in groups:
+        app = group.history.get("app")
+        if app:
+            others = [o.name for o in groups if o is not group and any(app in (p.comm, os.path.basename(p.exe or "")) for p in o.procs)]
+            if others:
+                group.history["shared_with"] = others[:6]
+        set_verdict(group)
 
 
 def mark_hidden_cpu(group: Group) -> None:
     """Note when Netdata's whole-unit CPU is far above what the live processes have used."""
     avg = group.history.get("cpu_avg_7d") if group.history else None
-    if isinstance(avg, float) and group.history.get("source", "").startswith(("service", "container")) \
+    if isinstance(avg, float) and group.history.get("source", "").startswith(("service", "user service", "container")) \
             and avg >= 3 * group.cpu_avg and avg - group.cpu_avg >= 2:
         group.history["hidden_cpu"] = round(group.cpu_avg, 2)
 
@@ -2446,6 +2564,14 @@ def apply_history(groups: List[Group], history: List[dict]) -> None:
         hits = [s for s in history if group.key in s["programs"]]
         first = min((s["time"] for s in hits), default=None)
         group.seen = f"running in {len(hits) + 1} of {len(history) + 1} scans" + (f" since {fmt_date(first)}" if first else "")
+        if hits:
+            earliest = min(hits, key=lambda s: s["time"] or NOW)
+            before = earliest["programs"][group.key]
+            then_kb = (before.get("memory_kb") or 0) + (before.get("swap_kb") or 0)
+            now_kb = group.mem_kb + group.swap_kb
+            if abs(now_kb - then_kb) >= 50 * 1024:
+                group.seen += (f"; memory + swap {fmt_bytes(then_kb)} at the first of these scans "
+                               f"({dt.datetime.fromtimestamp(earliest['time']).strftime('%b %d %H:%M')}) → {fmt_bytes(now_kb)} now")
 
 
 # ---------------------------------------------------------------------------
@@ -2481,7 +2607,27 @@ def launch_text(group: Group) -> str:
     return texts[0] + (f" (+{len(texts) - 1} other ways)" if len(texts) > 1 else "")
 
 
-def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[str, int], args, style: Style) -> None:
+def memory_week_lines(system: Dict[str, List], groups: List[Group], limit: int = 8) -> List[str]:
+    """Plain lines about memory over the last 7 days: the machine's RAM and swap, then rows that grew."""
+    lines = []
+    labels = {"ram": "RAM in use", "swap": "Swap in use"}
+    for key in ("ram", "swap"):
+        points = system.get(key) or []
+        if len(points) >= 2:
+            lines.append(f"{labels[key]}, daily average: " + " · ".join(f"{fmt_day(t)} {fmt_mib(v)}" for t, v in points))
+    growing = []
+    for g in groups:
+        trend = memory_trend(g.history.get("mem_daily") or []) if g.history else None
+        if trend and trend["growing"]:
+            growing.append((trend["to"] - trend["from"], g, trend))
+    for _, g, trend in sorted(growing, key=lambda item: -item[0])[:limit]:
+        lines.append(f"growing: {g.name} {fmt_mib(trend['from'])} ({fmt_day(trend['from_time'])}) → "
+                     f"{fmt_mib(trend['to'])} ({fmt_day(trend['to_time'])}), RAM + swap")
+    return lines
+
+
+def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[str, int], args, style: Style,
+                   system: Optional[Dict[str, List]] = None) -> None:
     width = shutil.get_terminal_size((120, 40)).columns
     total, avail = meminfo.get("MemTotal", 0), meminfo.get("MemAvailable", 0)
     swap_used = meminfo.get("SwapTotal", 0) - meminfo.get("SwapFree", 0)
@@ -2489,7 +2635,13 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
     where = swap_summary(swap_devices())
     print(f"Memory: {fmt_bytes(total - avail)} used of {fmt_bytes(total)}, swap used {fmt_bytes(swap_used)}"
           + (f" ({where})" if where else "") + ". "
-          f"{sum(len(g.procs) for g in groups)} processes in {len(groups)} programs.\n")
+          f"{sum(len(g.procs) for g in groups)} processes in {len(groups)} programs.")
+    week = memory_week_lines(system or {}, groups)
+    if week:
+        print(style.dim("Last 7 days, from Netdata:"))
+        for line in week:
+            print("  " + (style.yellow(line) if line.startswith("growing") else style.dim(line)))
+    print()
     shown = [g for g in groups if not args.mine or g.cls in ("yours", "optional")]
     shown = shown if args.all else shown[: args.top]
     colors = {"core": style.dim, "system": style.dim, "optional": style.cyan, "yours": style.yellow}
@@ -2503,9 +2655,7 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
         info = f"started by: {launch_text(group)} · {len(group.procs)} proc · up {fmt_age(NOW - group.oldest_start)} · avg {group.cpu_avg:.2f}% CPU"
         print(pad + style.dim(info[: max(width - 22, 40)]))
         verdict = group.verdict
-        if verdict.startswith("IDLE HOG"):
-            verdict = style.red(verdict)
-        elif group.cls == "yours":
+        if group.cls == "yours":
             verdict = style.yellow(verdict)
         print(pad + "→ " + verdict)
         if group.history and "cpu_avg_7d" in group.history:
@@ -2513,7 +2663,12 @@ def print_terminal(groups: List[Group], items: List[StartupItem], meminfo: Dict[
             extra = f" · net {fmt_volume(h['net_bytes_7d'])}" if "net_bytes_7d" in h else ""
             if h.get("hidden_cpu") is not None:
                 extra += " · mostly in short-lived processes"
+            trend = memory_trend(h.get("mem_daily") or [])
+            if trend and trend["growing"]:
+                extra += f" · memory {fmt_mib(trend['from'])} → {fmt_mib(trend['to'])} this week"
             print(pad + "  " + style.dim(f"7 days: avg {h['cpu_avg_7d']:.2f}% CPU, busiest hour {h['cpu_peak_7d']:.1f}%{extra}"))
+        elif group.history and group.cls in ("yours", "optional"):
+            print(pad + "  " + style.dim(("7 days: " + history_text(group.history))[: max(width - 24, 60)]))
         if group.tip and (args.tips or group.cls != "core"):
             print(pad + "  " + style.cyan("tip: ") + style.dim(group.tip[: max(width - 30, 60)]))
     hidden = len(groups) - len(shown)
@@ -2574,7 +2729,8 @@ def detail_lines(g: Group) -> List[str]:
     return out
 
 
-def markdown_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str, int], meta: Dict[str, str]) -> str:
+def markdown_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str, int], meta: Dict[str, str],
+                    system: Optional[Dict[str, List]] = None, netdata_errors: Optional[List[str]] = None) -> str:
     out = io.StringIO()
     w = out.write
     total, avail = meminfo.get("MemTotal", 0), meminfo.get("MemAvailable", 0)
@@ -2585,6 +2741,13 @@ def markdown_report(groups: List[Group], items: List[StartupItem], meminfo: Dict
     w(f"Memory in use: {fmt_bytes(total - avail)} of {fmt_bytes(total)}. Swap in use: "
       f"{fmt_bytes(meminfo.get('SwapTotal', 0) - meminfo.get('SwapFree', 0))}" + (f" ({where})" if where else "") +
       f". Desktop: {meta['desktop']}. Distro: {meta['distro']}.\n\n")
+    week = memory_week_lines(system or {}, groups, limit=20)
+    if week or netdata_errors:
+        w("## Memory over the last 7 days (Netdata)\n\n")
+        w("".join(f"- {line}\n" for line in week) or "- no memory history found\n")
+        if netdata_errors:
+            w("- Netdata queries that failed: " + "; ".join(netdata_errors[:12]) + "\n")
+        w("\n")
     w("## Programs, biggest first\n\n")
     w("| # | Memory | CPU now | Avg CPU | Program | Installed via | Started by | Verdict |\n|---|---|---|---|---|---|---|---|\n")
     for index, g in enumerate(groups, 1):
@@ -2608,7 +2771,8 @@ def markdown_report(groups: List[Group], items: List[StartupItem], meminfo: Dict
     return out.getvalue()
 
 
-def json_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str, int], meta: Dict[str, str]) -> dict:
+def json_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str, int], meta: Dict[str, str],
+                system: Optional[Dict[str, List]] = None) -> dict:
     programs = []
     for g in groups:
         programs.append({
@@ -2623,7 +2787,7 @@ def json_report(groups: List[Group], items: List[StartupItem], meminfo: Dict[str
                            "cgroup": p.cgroup, "cwd": Paths.show(p.cwd) if p.cwd else None} for p in g.procs],
         })
     return {"tool": "process-triage", "version": VERSION, "time": NOW, "meta": meta, "meminfo_kb": meminfo,
-            "programs": programs, "startup": [asdict(i) for i in items]}
+            "programs": programs, "startup": [asdict(i) for i in items], "netdata_memory": system or {}}
 
 
 def swap_devices(swaps_text: Optional[str] = None) -> List[Dict[str, object]]:
@@ -2651,10 +2815,16 @@ def swap_summary(devices: List[Dict[str, object]]) -> str:
     if zram:
         used = sum(d["used_kb"] for d in zram)
         ram = sum(d.get("ram_kb", 0) for d in zram)
-        parts.append(f"{fmt_bytes(used)} on zram (compressed RAM" + (f", really using {fmt_bytes(ram)} of RAM" if ram else "") + ")")
+        where = "all of it on zram" if not disk else f"{fmt_bytes(used)} on zram"
+        if ram and used:
+            where += (f", compressed into {fmt_bytes(ram)} of RAM (about {used / ram:.1f} to 1); "
+                      "the swap figures per program are uncompressed sizes")
+        else:
+            where += " (compressed RAM)"
+        parts.append(where)
     if disk:
         parts.append(f"{fmt_bytes(sum(d['used_kb'] for d in disk))} on disk")
-    return ", ".join(parts)
+    return "; ".join(parts)
 
 
 def read_meminfo() -> Dict[str, int]:
@@ -2746,20 +2916,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_dir = args.out or state_dir()
     if not args.no_save:
         apply_history(groups, load_history(out_dir))
+    system: Dict[str, List] = {}
+    netdata_errors: List[str] = []
     if not args.no_netdata:
         netdata = NetdataHistory(args.netdata)
         if netdata.connect():
             print(style.dim(f"Reading history from Netdata ({len(netdata.charts)} charts)…"), file=sys.stderr)
             apply_netdata(groups, netdata)
-            if netdata.errors:
-                print(style.dim(f"Netdata: {len(netdata.errors)} queries failed (first: {netdata.errors[0]})"), file=sys.stderr)
+            system = netdata.system_memory()
+            netdata_errors = list(dict.fromkeys(netdata.errors))
+            if netdata_errors:
+                print(style.dim(f"Netdata: {len(netdata_errors)} queries failed: " + "; ".join(netdata_errors[:3])), file=sys.stderr)
 
     if args.explain:
         explain(groups, args.explain, style)
         return 0
 
     meminfo = read_meminfo()
-    print_terminal(groups, items, meminfo, args, style)
+    print_terminal(groups, items, meminfo, args, style, system)
     if args.no_save:
         return 0
     meta = {"host": socket.gethostname(), "time_text": dt.datetime.fromtimestamp(NOW).strftime("%Y-%m-%d %H:%M"),
@@ -2770,9 +2944,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     md_path = os.path.join(out_dir, f"report-{stamp}.md")
     json_path = os.path.join(out_dir, f"scan-{stamp}.json")
     with open(md_path, "w") as handle:
-        handle.write(markdown_report(groups, items, meminfo, meta))
+        handle.write(markdown_report(groups, items, meminfo, meta, system, netdata_errors))
     with open(json_path, "w") as handle:
-        json.dump(json_report(groups, items, meminfo, meta), handle, indent=1, default=str)
+        json.dump(json_report(groups, items, meminfo, meta, system), handle, indent=1, default=str)
     if os.geteuid() == 0 and os.environ.get("SUDO_UID"):
         uid, gid = int(os.environ["SUDO_UID"]), int(os.environ.get("SUDO_GID", os.environ["SUDO_UID"]))
         for path in (out_dir, md_path, json_path):

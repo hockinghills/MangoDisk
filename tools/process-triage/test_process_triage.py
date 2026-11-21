@@ -452,6 +452,30 @@ class SwapTests(unittest.TestCase):
         self.assertIn("on disk", summary)
 
 
+class WordingTests(unittest.TestCase):
+    def test_verdicts_state_facts(self):
+        g = pt.Group(key="k", name="surfshark", prov=pt.Provenance(kind="system-package", name="surfshark"),
+                     procs=[make_proc(30, 0, "surfshark")], targets=[], launches=[])
+        g.cls, g.mem_kb, g.swap_kb, g.oldest_start = "yours", 70 * 1024, 88 * 1024, pt.NOW - 9 * 86400
+        pt.set_verdict(g)
+        self.assertEqual(g.verdict, "idle, holding 158 MB")
+        with open(pt.__file__) as handle:
+            source = handle.read()
+        for phrase in ("IDLE HOG", "good candidate", "candidate if you don't", "biggest idle hog"):
+            self.assertNotIn(phrase, source)
+
+    def test_scan_history_shows_memory_change(self):
+        g = pt.Group(key="k", name="x", prov=pt.Provenance(kind="manual", name="x"), procs=[], targets=[], launches=[])
+        g.mem_kb, g.swap_kb = 900 * 1024, 300 * 1024
+        pt.apply_history([g], [{"time": pt.NOW - 3600, "programs": {"k": {"memory_kb": 400 * 1024, "swap_kb": 0}}}])
+        self.assertIn("400 MB at the first of these scans", g.seen)
+        self.assertIn("1.2 GB now", g.seen)
+
+    def test_zram_ratio(self):
+        devices = [{"name": "/dev/zram0", "type": "partition", "used_kb": 16 * 1024 ** 2, "zram": True, "ram_kb": 4 * 1024 ** 2}]
+        self.assertIn("about 4.0 to 1", pt.swap_summary(devices))
+
+
 class FourthRunRegressions(unittest.TestCase):
     def test_apt_history_uses_install_flags_and_first_date(self):
         with tempfile.TemporaryDirectory() as root:
@@ -516,10 +540,20 @@ class FourthRunRegressions(unittest.TestCase):
 
 class FakeNetdata(http.server.BaseHTTPRequestHandler):
     charts = ["system.cpu", "systemd_netdata.cpu", "systemd_netdata.io", "cgroup_datahub-opensearch-1.cpu",
-              "cgroup_datahub-opensearch-1.net_eth0", "cgroup_datahub-opensearch-1.net_drops_eth0", "app.omniroute_cpu_utilization"]
+              "cgroup_datahub-opensearch-1.net_eth0", "cgroup_datahub-opensearch-1.net_drops_eth0", "app.omniroute_cpu_utilization",
+              "cgroup_datahub-opensearch-1.mem_usage", "cgroup_helicone-ai-gateway.cpu", "cgroup_helicone-ai-gateway.net_eth0",
+              "app.cloudflared_cpu_utilization", "app.ydotoold_cpu_utilization", "app.mango_cpu_utilization",
+              "cgroup_user.slice_app.slice_omniroute.service.cpu", "system.ram", "mem.swap"]
     values = {"systemd_netdata.cpu": [20.0, 10.0], "systemd_netdata.io": [100.0, 28.0],
               "cgroup_datahub-opensearch-1.cpu": [1.0, 0.5], "cgroup_datahub-opensearch-1.net_eth0": [8.0, 8.0],
-              "cgroup_datahub-opensearch-1.net_drops_eth0": [999.0], "app.omniroute_cpu_utilization": [2.0, 0.0]}
+              "cgroup_datahub-opensearch-1.net_drops_eth0": [999.0], "app.omniroute_cpu_utilization": [2.0, 0.0],
+              "cgroup_helicone-ai-gateway.cpu": [0.05], "cgroup_helicone-ai-gateway.net_eth0": [100.0],
+              "app.cloudflared_cpu_utilization": [0.2], "app.ydotoold_cpu_utilization": [0.0],
+              "app.mango_cpu_utilization": [1.0], "cgroup_user.slice_app.slice_omniroute.service.cpu": [3.0]}
+    # oldest first; served newest first like Netdata does
+    daily = {"cgroup_datahub-opensearch-1.mem_usage": [0.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0],
+             "system.ram": [10000.0, 12000.0, 14000.0], "mem.swap": [8000.0, 12000.0, 17000.0]}
+    missing = {"app.omniroute_cpu_utilization"}
 
     def log_message(self, *args):
         pass
@@ -531,10 +565,18 @@ class FakeNetdata(http.server.BaseHTTPRequestHandler):
             body = {"charts": {c: {} for c in self.charts}}
         elif url.path == "/api/v1/chart":
             body = {"first_entry": 1700000000, "last_entry": 1800000000}
+        elif url.path == "/api/v1/data" and query["chart"] in self.missing:
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"Chart is not found: " + query["chart"].encode())
+            return
+        elif url.path == "/api/v1/data" and query["chart"] in self.daily:
+            values = self.daily[query["chart"]]
+            body = {"labels": ["time", "used"], "data": [[1800000000 + i * 86400, v] for i, v in reversed(list(enumerate(values)))]}
         elif url.path == "/api/v1/data":
             points = int(query["points"])
             row = self.values.get(query["chart"], [0.0])
-            body = {"labels": ["time"] + ["d"] * len(row), "data": [[i] + row for i in range(points)]}
+            body = {"labels": ["time"] + ["d"] * len(row), "data": [[1800000000 - i] + row for i in range(points)]}
         else:
             self.send_response(404)
             self.end_headers()
@@ -576,10 +618,56 @@ class NetdataHistoryTests(unittest.TestCase):
         self.assertAlmostEqual(h["net_bytes_7d"], 16 * 1000 / 8 * 7 * 86400, delta=1)
 
     def test_program_groups_skip_generic_names(self):
-        omni = self.group(pt.Provenance(kind="npm-global", name="omniroute"), [], [make_proc(3, 0, "node-MainThread")])
-        self.assertEqual(self.netdata.history_for(omni)["cpu_avg_7d"], 2.0)
+        mango = self.group(pt.Provenance(kind="npm-global", name="mango"), [], [make_proc(3, 0, "node-MainThread")])
+        self.assertEqual(self.netdata.history_for(mango)["cpu_avg_7d"], 1.0)
         node = self.group(pt.Provenance(kind="npm-global", name="node"), [], [make_proc(4, 0, "node")])
         self.assertEqual(self.netdata.history_for(node), {})
+
+    def test_failed_chart_gives_netdata_reason_and_user_service_chart_is_used(self):
+        omni = self.group(pt.Provenance(kind="npm-global", name="omniroute"), [], [make_proc(3, 0, "node-MainThread")])
+        h = self.netdata.history_for(omni)
+        self.assertIn("HTTP 404: Chart is not found", pt.history_text(h))
+        unit = pt.Launch("user-service", "x", unit="omniroute.service", scope="user")
+        h = self.netdata.history_for(self.group(pt.Provenance(kind="npm-global", name="omniroute"), [unit],
+                                                [make_proc(3, 0, "node-MainThread")]))
+        self.assertEqual(h["cpu_avg_7d"], 3.0)
+        self.assertIn("user service `omniroute.service`", pt.history_text(h))
+
+    def test_children_do_not_lend_their_chart(self):
+        parent = make_proc(10, 1, "python")
+        child = make_proc(11, 10, "ydotoold")
+        g = self.group(pt.Provenance(kind="venv", name="main.py"), [], [parent, child])
+        self.assertNotIn("cpu_avg_7d", self.netdata.history_for(g))
+
+    def test_memory_trend_and_system_memory(self):
+        g = self.group(pt.Provenance(kind="container", name="datahub-opensearch-1"), [], [make_proc(2, 0, "java")])
+        g.history = self.netdata.history_for(g)
+        trend = pt.memory_trend(g.history["mem_daily"])
+        self.assertEqual((trend["from"], trend["to"], trend["growing"]), (600.0, 1100.0, True))
+        self.assertIn("rising steadily", pt.history_text(g.history))
+        system = self.netdata.system_memory()
+        self.assertEqual([v for _, v in system["swap"]], [8000.0, 12000.0, 17000.0])
+        lines = pt.memory_week_lines(system, [g])
+        self.assertTrue(lines[1].startswith("Swap in use"))
+        self.assertTrue(lines[2].startswith("growing: datahub-opensearch-1 600 MB"))
+
+    def test_quiet_snapshot_but_busy_week_is_not_idle(self):
+        proc = make_proc(12, 0, "ai-gateway")
+        g = self.group(pt.Provenance(kind="container", name="helicone-ai-gateway"), [], [proc])
+        g.cls, g.mem_kb, g.cpu_avg, g.cpu_now, g.oldest_start = "yours", 300 * 1024, 0.0, 0.0, pt.NOW - 9 * 86400
+        pt.set_verdict(g)
+        self.assertTrue(g.verdict.startswith("idle, holding"))
+        g.history = self.netdata.history_for(g)
+        pt.set_verdict(g)
+        self.assertIn("quiet right now, but", g.verdict)
+        self.assertIn("network traffic", g.verdict)
+
+    def test_shared_app_chart_is_named(self):
+        tunnel = self.group(pt.Provenance(kind="unit", name="cloudflared-openmuse-helicone"), [], [make_proc(20, 0, "cloudflared")])
+        other = self.group(pt.Provenance(kind="container", name="netbird-cloudflared"), [], [make_proc(21, 0, "cloudflared")])
+        other.name = "netbird-cloudflared"
+        pt.apply_netdata([tunnel, other], self.netdata)
+        self.assertIn("`netbird-cloudflared`", pt.history_text(tunnel.history))
 
     def test_missing_charts_and_hidden_cpu_are_explained(self):
         lone = self.group(pt.Provenance(kind="manual", name="mystery-tool"), [], [make_proc(5, 0, "mystery-tool")])
