@@ -43,7 +43,7 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.7.2"
+VERSION = "0.7.3"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -2247,7 +2247,7 @@ def week_activity(group: Group) -> str:
     """What Netdata saw a row do over the last 7 days (empty when it saw nothing worth mentioning)."""
     h = group.history or {}
     parts = []
-    if h.get("shared_with") or h.get("generic"):
+    if h.get("shared_with"):
         return ""  # the chart also counts other programs' processes
     if isinstance(h.get("cpu_avg_7d"), (int, float)) and h["cpu_avg_7d"] >= 0.5:
         parts.append(f"{h['cpu_avg_7d']:.1f}% CPU on average")
@@ -2262,8 +2262,7 @@ def set_verdict(group: Group) -> None:
     held = group.mem_kb + group.swap_kb
     big = held >= HOG_KB
     busy_week = week_activity(group)
-    own_week = isinstance(group.history.get("cpu_avg_7d"), (int, float)) and not (
-        group.history.get("shared_with") or group.history.get("generic"))
+    own_week = isinstance(group.history.get("cpu_avg_7d"), (int, float))
     if own_week:
         # A week of history settles idle vs active; a 2-second sample flips on tiny spikes.
         idle = (not busy_week and group.history["cpu_avg_7d"] < 0.5 and group.cpu_now < 5
@@ -2431,17 +2430,12 @@ class NetdataHistory:
             if extra and extra not in names:
                 names.append(extra)
         skip = GENERIC_APP_NAMES | user_names()
-        candidates = [(n, False) for n in names if n not in skip and len(n) >= 3]
-        # Last resort: the generic process name (node-MainThread, python3). That chart counts every
-        # process of that name, which the row then says.
-        candidates += [(p.comm, True) for p in roots[:1] if p.comm in GENERIC_APP_NAMES and p.comm not in user_names()
-                       and p.comm not in SHELLS and p.comm not in ("sleep", "cat", "curl", "sudo", "chmod")]
-        for name, generic in candidates:
+        for name in [n for n in names if n not in skip and len(n) >= 3]:
             tried.append(name)
             chart = f"app.{name}_cpu_utilization"
             if chart in self.charts:
                 sources.append((f"every process named `{name}`", {
-                    "cpu": chart, "app": name, "generic": generic,
+                    "cpu": chart, "app": name,
                     "io": [c for c in (f"app.{name}_disk_logical_io",) if c in self.charts],
                     # Private memory: RSS summed over many processes counts shared pages again for each one.
                     "mem": ([c for c in (f"app.{name}_mem_private_usage",) if c in self.charts]
@@ -2452,17 +2446,26 @@ class NetdataHistory:
     def history_for(self, group: "Group") -> Dict[str, object]:
         tried: List[str] = []
         sources = self.sources_for(group, tried)
-        failed: List[str] = []
+        failed: List[Tuple[str, str]] = []
         for where, charts in sources:
-            points = self.series_points(charts["cpu"], 7 * 86400, 168)
-            cpu7 = [value for _, value in points]
-            if cpu7:
-                break
-            failed.append(str(charts["cpu"]))
-        else:
-            if failed:
-                return {"no_data": [(chart, self.failures.get(chart, "no data points")) for chart in failed]}
-            return {"no_chart": tried} if tried else {}
+            out = self._history_from(group, where, charts)
+            reason = out.pop("reject", None) if out else self.failures.get(str(charts["cpu"]), "no data points")
+            if not reason:
+                if failed:
+                    out["skipped"] = failed
+                return out
+            failed.append((str(charts["cpu"]), str(reason)))
+        if failed:
+            return {"no_data": failed}
+        return {"no_chart": tried} if tried else {}
+
+    def _history_from(self, group: "Group", where: str, charts: Dict[str, object]) -> Dict[str, object]:
+        points = self.series_points(charts["cpu"], 7 * 86400, 168)
+        cpu7 = [value for _, value in points]
+        if not cpu7:
+            return {}
+        if NOW - points[-1][0] > 6 * 3600:
+            return {"reject": f"its last data is from {dt.datetime.fromtimestamp(points[-1][0]).strftime('%b %d %H:%M')}"}
         out: Dict[str, object] = {"source": where, "chart": charts["cpu"],
                                   "cpu_avg_7d": round(sum(cpu7) / len(cpu7), 3), "cpu_peak_7d": round(max(cpu7), 2),
                                   "cpu_query": [len(points), points[0][0], points[-1][0]]}
@@ -2470,8 +2473,6 @@ class NetdataHistory:
             out["installed_at"] = group.prov.installed_at
         if charts.get("app"):
             out["app"] = charts["app"]
-        if charts.get("generic"):
-            out["generic"] = True
         cpu30 = self.series(charts["cpu"], 30 * 86400, 120)
         if cpu30:
             out["cpu_avg_30d"] = round(sum(cpu30) / len(cpu30), 3)
@@ -2499,8 +2500,12 @@ class NetdataHistory:
         if daily:
             out["mem_daily"] = [[when, round(mib, 1)] for when, mib in sorted(daily.items())]
             out["mem_dims"] = dims
-        if failed:
-            out["skipped"] = [(chart, self.failures.get(chart, "no data points")) for chart in failed]
+            measured_mib = (group.mem_kb + group.swap_kb) / 1024
+            latest = out["mem_daily"][-1][1]
+            running_then = group.oldest_start < out["mem_daily"][-1][0]
+            if charts.get("app") and running_then and measured_mib >= 50 and latest * 3 < measured_mib:
+                return {"reject": f"it holds {fmt_mib(latest)} while this program uses {fmt_mib(measured_mib)}, "
+                                  "so it is counting other processes"}
         if self.first_entry and NOW - self.first_entry < 30 * 86400:
             out["since"] = self.first_entry
         return out
@@ -2544,7 +2549,7 @@ def history_text(history: Dict[str, object]) -> str:
     if "no_chart" in history:
         return "no matching Netdata chart (looked for program groups: " + ", ".join(f"`{n}`" for n in history["no_chart"][:6]) + ")"
     if history.get("no_data"):
-        return "Netdata lists " + "; ".join(f"`{chart}` but returned no data for it ({why})" for chart, why in history["no_data"])
+        return "no usable Netdata chart: " + "; ".join(f"`{chart}` ({why})" for chart, why in history["no_data"])
     installed = history.get("installed_at") or 0
     new = installed > NOW - 7 * 86400
     week = f"since it was installed {fmt_date(installed)}" if new else "last 7 days"
@@ -2571,8 +2576,7 @@ def history_text(history: Dict[str, object]) -> str:
     if history.get("shared_with"):
         text += (f". That chart counts every `{history['app']}` process, including the ones in: "
                  + ", ".join(f"`{n}`" for n in history["shared_with"]))
-    elif history.get("generic"):
-        text += f". That chart counts every process named `{history['app']}`, not only this program's"
+
     if history.get("skipped"):
         text += ". Skipped " + "; ".join(f"`{chart}` ({why})" for chart, why in history["skipped"])
     if history.get("hidden_cpu"):

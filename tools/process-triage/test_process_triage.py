@@ -571,7 +571,7 @@ class FakeNetdata(http.server.BaseHTTPRequestHandler):
               "app.cloudflared_cpu_utilization", "app.ydotoold_cpu_utilization", "app.mango_cpu_utilization",
               "cgroup_user.slice_app.slice_omniroute.service.cpu", "system.ram", "mem.swap",
               "app.chrome_cpu_utilization", "app.chrome_mem_usage", "app.chrome_mem_private_usage", "app.chrome_disk_logical_io",
-              "app.hyprwhspr_cpu_utilization", "app.node-MainThread_cpu_utilization"]
+              "app.hyprwhspr_cpu_utilization", "app.node-MainThread_cpu_utilization", "app.stalechart_cpu_utilization"]
     values = {"systemd_netdata.cpu": [20.0, 10.0], "systemd_netdata.io": [100.0, 28.0],
               "cgroup_datahub-opensearch-1.cpu": [1.0, 0.5], "cgroup_datahub-opensearch-1.net_eth0": [8.0, 8.0],
               "cgroup_datahub-opensearch-1.net_drops_eth0": [999.0], "app.omniroute_cpu_utilization": [2.0, 0.0],
@@ -599,13 +599,15 @@ class FakeNetdata(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Chart is not found: " + query["chart"].encode())
             return
+        elif url.path == "/api/v1/data" and query["chart"] == "app.stalechart_cpu_utilization":
+            body = {"labels": ["time", "user"], "data": [[int(pt.NOW) - 2 * 86400, 1.0]]}
         elif url.path == "/api/v1/data" and query["chart"] in self.daily:
             values = self.daily[query["chart"]]
             body = {"labels": ["time", "used"], "data": [[1800000000 + i * 86400, v] for i, v in reversed(list(enumerate(values)))]}
         elif url.path == "/api/v1/data":
             points = int(query["points"])
             row = self.values.get(query["chart"], [0.0])
-            body = {"labels": ["time"] + ["d"] * len(row), "data": [[1800000000 - i] + row for i in range(points)]}
+            body = {"labels": ["time"] + ["d"] * len(row), "data": [[int(pt.NOW) - i * 60] + row for i in range(points)]}
         else:
             self.send_response(404)
             self.end_headers()
@@ -701,17 +703,21 @@ class NetdataHistoryTests(unittest.TestCase):
         self.assertIn("since it was installed", text)
         self.assertNotIn("last 30 days", text)
 
-    def test_service_name_and_generic_fallback(self):
+    def test_service_name_is_tried_and_generic_names_are_not(self):
         unit = pt.Launch("user-service", "x", unit="hyprwhspr.service", scope="user")
         g = self.group(pt.Provenance(kind="venv", name="main.py"), [unit], [make_proc(42, 1, "python3.14")])
         self.assertEqual(self.netdata.history_for(g)["chart"], "app.hyprwhspr_cpu_utilization")
         omni = self.group(pt.Provenance(kind="npm-global", name="omniroute"), [], [make_proc(43, 1, "node-MainThread")])
         h = self.netdata.history_for(omni)
-        self.assertEqual(h["chart"], "app.node-MainThread_cpu_utilization")
-        self.assertIn("not only this program's", pt.history_text(h))
+        self.assertNotIn("cpu_avg_7d", h)
         self.assertIn("HTTP 404", pt.history_text(h))
-        omni.history, omni.cls, omni.cpu_now = h, "yours", 0.0
-        self.assertEqual(pt.week_activity(omni), "")
+
+    def test_stale_and_mismatched_charts_are_rejected(self):
+        stale = self.group(pt.Provenance(kind="manual", name="stalechart"), [], [make_proc(44, 1, "stalechart")])
+        self.assertIn("its last data is from", pt.history_text(self.netdata.history_for(stale)))
+        big = self.group(pt.Provenance(kind="system-package", name="google-chrome-stable"), [], [make_proc(45, 1, "chrome")])
+        big.mem_kb = 20 * 1024 * 1024
+        self.assertIn("counting other processes", pt.history_text(self.netdata.history_for(big)))
 
     def test_names_tried_once(self):
         g = self.group(pt.Provenance(kind="venv", name="main.py"), [], [make_proc(41, 1, "python3.14")])
