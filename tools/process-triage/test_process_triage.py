@@ -570,7 +570,8 @@ class FakeNetdata(http.server.BaseHTTPRequestHandler):
               "cgroup_datahub-opensearch-1.mem_usage", "cgroup_helicone-ai-gateway.cpu", "cgroup_helicone-ai-gateway.net_eth0",
               "app.cloudflared_cpu_utilization", "app.ydotoold_cpu_utilization", "app.mango_cpu_utilization",
               "cgroup_user.slice_app.slice_omniroute.service.cpu", "system.ram", "mem.swap",
-              "app.chrome_cpu_utilization", "app.chrome_mem_usage", "app.chrome_mem_private_usage", "app.chrome_disk_logical_io"]
+              "app.chrome_cpu_utilization", "app.chrome_mem_usage", "app.chrome_mem_private_usage", "app.chrome_disk_logical_io",
+              "app.hyprwhspr_cpu_utilization", "app.node-MainThread_cpu_utilization"]
     values = {"systemd_netdata.cpu": [20.0, 10.0], "systemd_netdata.io": [100.0, 28.0],
               "cgroup_datahub-opensearch-1.cpu": [1.0, 0.5], "cgroup_datahub-opensearch-1.net_eth0": [8.0, 8.0],
               "cgroup_datahub-opensearch-1.net_drops_eth0": [999.0], "app.omniroute_cpu_utilization": [2.0, 0.0],
@@ -649,7 +650,7 @@ class NetdataHistoryTests(unittest.TestCase):
         mango = self.group(pt.Provenance(kind="npm-global", name="mango"), [], [make_proc(3, 0, "node-MainThread")])
         self.assertEqual(self.netdata.history_for(mango)["cpu_avg_7d"], 1.0)
         node = self.group(pt.Provenance(kind="npm-global", name="node"), [], [make_proc(4, 0, "node")])
-        self.assertEqual(self.netdata.history_for(node), {})
+        self.assertNotIn("cpu_avg_7d", self.netdata.history_for(node))
 
     def test_failed_chart_gives_netdata_reason_and_user_service_chart_is_used(self):
         omni = self.group(pt.Provenance(kind="npm-global", name="omniroute"), [], [make_proc(3, 0, "node-MainThread")])
@@ -687,8 +688,7 @@ class NetdataHistoryTests(unittest.TestCase):
         self.assertTrue(g.verdict.startswith("idle, holding"))
         g.history = self.netdata.history_for(g)
         pt.set_verdict(g)
-        self.assertIn("quiet right now, but", g.verdict)
-        self.assertIn("network traffic", g.verdict)
+        self.assertEqual(g.verdict, "7.0 GB of network traffic over the last 7 days")
 
     def test_app_memory_uses_private_chart_and_labels_logical_io(self):
         g = self.group(pt.Provenance(kind="system-package", name="google-chrome-stable", installed_at=pt.NOW - 3 * 86400),
@@ -700,6 +700,18 @@ class NetdataHistoryTests(unittest.TestCase):
         self.assertIn("not only disk", text)
         self.assertIn("since it was installed", text)
         self.assertNotIn("last 30 days", text)
+
+    def test_service_name_and_generic_fallback(self):
+        unit = pt.Launch("user-service", "x", unit="hyprwhspr.service", scope="user")
+        g = self.group(pt.Provenance(kind="venv", name="main.py"), [unit], [make_proc(42, 1, "python3.14")])
+        self.assertEqual(self.netdata.history_for(g)["chart"], "app.hyprwhspr_cpu_utilization")
+        omni = self.group(pt.Provenance(kind="npm-global", name="omniroute"), [], [make_proc(43, 1, "node-MainThread")])
+        h = self.netdata.history_for(omni)
+        self.assertEqual(h["chart"], "app.node-MainThread_cpu_utilization")
+        self.assertIn("not only this program's", pt.history_text(h))
+        self.assertIn("HTTP 404", pt.history_text(h))
+        omni.history, omni.cls, omni.cpu_now = h, "yours", 0.0
+        self.assertEqual(pt.week_activity(omni), "")
 
     def test_names_tried_once(self):
         g = self.group(pt.Provenance(kind="venv", name="main.py"), [], [make_proc(41, 1, "python3.14")])

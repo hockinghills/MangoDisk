@@ -43,7 +43,7 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -2247,6 +2247,8 @@ def week_activity(group: Group) -> str:
     """What Netdata saw a row do over the last 7 days (empty when it saw nothing worth mentioning)."""
     h = group.history or {}
     parts = []
+    if h.get("shared_with") or h.get("generic"):
+        return ""  # the chart also counts other programs' processes
     if isinstance(h.get("cpu_avg_7d"), (int, float)) and h["cpu_avg_7d"] >= 0.5:
         parts.append(f"{h['cpu_avg_7d']:.1f}% CPU on average")
     if h.get("net_bytes_7d", 0) >= 200 * 1024 ** 2:
@@ -2260,9 +2262,16 @@ def set_verdict(group: Group) -> None:
     held = group.mem_kb + group.swap_kb
     big = held >= HOG_KB
     busy_week = week_activity(group)
-    idle = group.idle and not busy_week
-    quiet = f"quiet right now, but {busy_week} over the last 7 days" if group.idle and busy_week else ""
-    week_idle = isinstance(group.history.get("cpu_avg_7d"), (int, float)) and group.history["cpu_avg_7d"] < 0.05
+    own_week = isinstance(group.history.get("cpu_avg_7d"), (int, float)) and not (
+        group.history.get("shared_with") or group.history.get("generic"))
+    if own_week:
+        # A week of history settles idle vs active; a 2-second sample flips on tiny spikes.
+        idle = (not busy_week and group.history["cpu_avg_7d"] < 0.5 and group.cpu_now < 5
+                and NOW - group.oldest_start > IDLE_MIN_UPTIME)
+    else:
+        idle = group.idle and not busy_week
+    quiet = f"{busy_week} over the last 7 days" if busy_week and group.cpu_now < 25 else ""
+    week_idle = own_week and group.history["cpu_avg_7d"] < 0.05
     idle_text = ("idle all week" if week_idle else "idle") + (f", holding {fmt_bytes(held)}" if big else "")
     launch_kinds = {l.kind for l in group.launches}
     just_started = NOW - group.oldest_start < 120 and launch_kinds <= {"terminal", "ssh", "child"} and launch_kinds & {"terminal", "ssh"}
@@ -2414,18 +2423,25 @@ class NetdataHistory:
                               os.path.basename(proc.cmdline[0].split()[0]) if proc.cmdline and proc.cmdline[0].strip() else ""):
                 if candidate and candidate not in names:
                     names.append(candidate)
-        for extra in (prov.name, group.name.split(" (")[0]):
+        # Netdata's apps.plugin often names a group after the service that runs it (hyprwhspr for
+        # `python main.py` started by hyprwhspr.service).
+        units = [l.unit[: -len(".service")] for l in group.launches
+                 if l.unit and l.unit.endswith(".service") and "@" not in l.unit and not l.unit.startswith(("app-", "dbus-"))]
+        for extra in [prov.name, group.name.split(" (")[0]] + units:
             if extra and extra not in names:
                 names.append(extra)
         skip = GENERIC_APP_NAMES | user_names()
-        for name in names:
-            if name in skip or len(name) < 3:
-                continue
+        candidates = [(n, False) for n in names if n not in skip and len(n) >= 3]
+        # Last resort: the generic process name (node-MainThread, python3). That chart counts every
+        # process of that name, which the row then says.
+        candidates += [(p.comm, True) for p in roots[:1] if p.comm in GENERIC_APP_NAMES and p.comm not in user_names()
+                       and p.comm not in SHELLS and p.comm not in ("sleep", "cat", "curl", "sudo", "chmod")]
+        for name, generic in candidates:
             tried.append(name)
             chart = f"app.{name}_cpu_utilization"
             if chart in self.charts:
                 sources.append((f"every process named `{name}`", {
-                    "cpu": chart, "app": name,
+                    "cpu": chart, "app": name, "generic": generic,
                     "io": [c for c in (f"app.{name}_disk_logical_io",) if c in self.charts],
                     # Private memory: RSS summed over many processes counts shared pages again for each one.
                     "mem": ([c for c in (f"app.{name}_mem_private_usage",) if c in self.charts]
@@ -2454,6 +2470,8 @@ class NetdataHistory:
             out["installed_at"] = group.prov.installed_at
         if charts.get("app"):
             out["app"] = charts["app"]
+        if charts.get("generic"):
+            out["generic"] = True
         cpu30 = self.series(charts["cpu"], 30 * 86400, 120)
         if cpu30:
             out["cpu_avg_30d"] = round(sum(cpu30) / len(cpu30), 3)
@@ -2553,6 +2571,8 @@ def history_text(history: Dict[str, object]) -> str:
     if history.get("shared_with"):
         text += (f". That chart counts every `{history['app']}` process, including the ones in: "
                  + ", ".join(f"`{n}`" for n in history["shared_with"]))
+    elif history.get("generic"):
+        text += f". That chart counts every process named `{history['app']}`, not only this program's"
     if history.get("skipped"):
         text += ". Skipped " + "; ".join(f"`{chart}` ({why})" for chart, why in history["skipped"])
     if history.get("hidden_cpu"):
