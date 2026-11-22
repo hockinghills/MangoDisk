@@ -73,6 +73,7 @@ describe('application shell layout', () => {
     expect(PRIMARY_NAV_GROUPS[2].items.map(item => item.id)).toEqual([
       PAGE_IDS.applicationUninstall,
       PAGE_IDS.startup,
+      PAGE_IDS.runningPrograms,
       PAGE_IDS.systemOptimization,
       PAGE_IDS.systemMaintenance,
     ]);
@@ -92,13 +93,20 @@ describe('application shell layout', () => {
 
     expect(primaryNavGroupsForPlatform('linux')[2]?.items.map(item => item.id)).toEqual([
       PAGE_IDS.startup,
+      PAGE_IDS.runningPrograms,
       PAGE_IDS.systemMaintenance,
     ]);
   });
 
-  it('keeps the complete navigation on supported desktop platforms', () => {
+  it('keeps the complete navigation except Linux-only workspaces on other desktop platforms', () => {
     for (const platform of ['macos', 'windows']) {
-      expect(primaryNavGroupsForPlatform(platform)).toEqual(PRIMARY_NAV_GROUPS);
+      expect(isPageAvailableOnPlatform(PAGE_IDS.runningPrograms, platform)).toBe(false);
+      expect(primaryNavGroupsForPlatform(platform)).toEqual(
+        PRIMARY_NAV_GROUPS.map(group => ({
+          ...group,
+          items: group.items.filter(item => item.id !== PAGE_IDS.runningPrograms),
+        }))
+      );
     }
   });
 });

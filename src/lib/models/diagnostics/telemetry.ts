@@ -25,6 +25,7 @@ export const LOG_DOMAINS = {
   largeFiles: 'large-files',
   macosPermissions: 'macos-permissions',
   privacy: 'privacy',
+  runningPrograms: 'running-programs',
   settings: 'settings',
   startup: 'startup',
   storageScan: 'storage-scan',

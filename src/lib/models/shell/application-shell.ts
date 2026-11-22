@@ -67,6 +67,7 @@ export const PAGE_IDS = {
   applicationUninstall: 'application-uninstall',
   privacy: 'privacy',
   startup: 'startup',
+  runningPrograms: 'running-programs',
   history: 'history',
   settings: 'settings',
 } as const;
@@ -78,13 +79,17 @@ const LINUX_UNAVAILABLE_PAGES: ReadonlySet<PageId> = new Set([
   PAGE_IDS.systemOptimization,
 ]);
 
+/** Workspaces whose platform inventory exists only on Linux. */
+const LINUX_ONLY_PAGES: ReadonlySet<PageId> = new Set([PAGE_IDS.runningPrograms]);
+
 /**
  * Keeps navigation aligned with capabilities that have an actual platform
  * implementation. Programmatic navigation uses the same boundary so tray and
  * window events cannot expose a non-functional workspace.
  */
 export function isPageAvailableOnPlatform(page: PageId, platform: string): boolean {
-  return platform !== 'linux' || !LINUX_UNAVAILABLE_PAGES.has(page);
+  if (platform === 'linux') return !LINUX_UNAVAILABLE_PAGES.has(page);
+  return !LINUX_ONLY_PAGES.has(page);
 }
 
 export const PRIMARY_NAV_GROUPS = [
@@ -109,6 +114,7 @@ export const PRIMARY_NAV_GROUPS = [
     items: [
       { id: PAGE_IDS.applicationUninstall, icon: ICON_NAMES.uninstall },
       { id: PAGE_IDS.startup, icon: ICON_NAMES.startup },
+      { id: PAGE_IDS.runningPrograms, icon: ICON_NAMES.process },
       { id: PAGE_IDS.systemOptimization, icon: ICON_NAMES.systemOptimization },
       { id: PAGE_IDS.systemMaintenance, icon: ICON_NAMES.systemMaintenance },
     ],

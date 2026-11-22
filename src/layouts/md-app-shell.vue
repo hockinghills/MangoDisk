@@ -49,6 +49,7 @@ import { useDuplicateFilesStore } from '@/stores/duplicate-files-store';
 import { useHistoryStore } from '@/stores/history-store';
 import { useLargeFilesStore } from '@/stores/large-files-store';
 import { usePrivacyStore } from '@/stores/privacy-store';
+import { useRunningProgramsStore } from '@/stores/running-programs-store';
 import { useStorageScopeStore } from '@/stores/storage-scope-store';
 import { useStartupStore } from '@/stores/startup-store';
 import { useSystemSettingsStore } from '@/stores/system-settings-store';
@@ -76,6 +77,7 @@ const loadDuplicateFilesPage = () => import('@/pages/duplicate-files/index.vue')
 const loadHistoryPage = () => import('@/pages/history/index.vue');
 const loadLargeFilesPage = () => import('@/pages/large-files/index.vue');
 const loadPrivacyPage = () => import('@/pages/privacy/index.vue');
+const loadRunningProgramsPage = () => import('@/pages/running-programs/index.vue');
 const loadSettingsPage = () => import('@/pages/settings/index.vue');
 const loadStartupPage = () => import('@/pages/startup/index.vue');
 const loadSystemOptimizationPage = () => import('@/pages/system-optimization/index.vue');
@@ -87,6 +89,7 @@ const pageLoaders: Partial<Record<PageId, () => Promise<unknown>>> = {
   [PAGE_IDS.history]: loadHistoryPage,
   [PAGE_IDS.largeFiles]: loadLargeFilesPage,
   [PAGE_IDS.privacy]: loadPrivacyPage,
+  [PAGE_IDS.runningPrograms]: loadRunningProgramsPage,
   [PAGE_IDS.settings]: loadSettingsPage,
   [PAGE_IDS.startup]: loadStartupPage,
   [PAGE_IDS.systemOptimization]: loadSystemOptimizationPage,
@@ -98,6 +101,7 @@ const DuplicateFilesPage = defineAsyncComponent(loadDuplicateFilesPage);
 const HistoryPage = defineAsyncComponent(loadHistoryPage);
 const LargeFilesPage = defineAsyncComponent(loadLargeFilesPage);
 const PrivacyPage = defineAsyncComponent(loadPrivacyPage);
+const RunningProgramsPage = defineAsyncComponent(loadRunningProgramsPage);
 const SettingsPage = defineAsyncComponent(loadSettingsPage);
 const StartupPage = defineAsyncComponent(loadStartupPage);
 const SystemOptimizationPage = defineAsyncComponent(loadSystemOptimizationPage);
@@ -148,6 +152,7 @@ function openScanExclusions() {
 const historyStore = useHistoryStore();
 const largeFilesStore = useLargeFilesStore();
 const privacyStore = usePrivacyStore();
+const runningProgramsStore = useRunningProgramsStore();
 const duplicateFilesStore = useDuplicateFilesStore();
 const storageScopeStore = useStorageScopeStore();
 const startupStore = useStartupStore();
@@ -240,6 +245,7 @@ const busyPages = computed<PageId[]>(() => [
     : []),
   ...(privacyStore.scanning || privacyStore.preparing || privacyStore.executing ? [PAGE_IDS.privacy] : []),
   ...(startupStore.scanning || startupStore.preparingChange || startupStore.executingChange ? [PAGE_IDS.startup] : []),
+  ...(runningProgramsStore.scanning ? [PAGE_IDS.runningPrograms] : []),
   ...(systemSettingsStore.scanning || systemSettingsStore.preparing || systemSettingsStore.executing
     ? [PAGE_IDS.systemOptimization]
     : []),
@@ -879,6 +885,7 @@ async function cancelDeepCleanup() {
           @open="openPath"
         />
         <PrivacyPage v-else-if="store.currentPage === PAGE_IDS.privacy" />
+        <RunningProgramsPage v-else-if="store.currentPage === PAGE_IDS.runningPrograms" />
         <StartupPage
           v-else-if="store.currentPage === PAGE_IDS.startup"
           :catalog="startupStore.catalog"

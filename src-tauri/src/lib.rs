@@ -303,6 +303,8 @@ pub fn run() {
             commands::permanent_delete::delete_files_permanently,
             commands::permanent_delete::delete_analysis_entry_permanently,
             commands::permanent_delete::delete_analysis_entries_permanently,
+            commands::running_programs::scan_running_programs,
+            commands::running_programs::cancel_running_programs_scan,
             commands::startup::scan_startup_catalog,
             commands::startup::cancel_startup_catalog_scan,
             commands::startup::cancel_startup_change,

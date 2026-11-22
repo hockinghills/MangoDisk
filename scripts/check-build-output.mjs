@@ -146,17 +146,21 @@ const localeChunkLimitOverrides = new Map([
   // Clearer export selection copy adds up to 32 gzip bytes in four locales.
   // Directory-size export filters add three labels and clarify the full-mode hint.
   // Extend only measured locale margins; application chunk budgets stay fixed.
-  ['fr-fr', { bytes: 343552, gzipBytes: 68864 }],
-  ['de-de', { bytes: 332704, gzipBytes: 69376 }],
-  ['es-es', { bytes: 334592, gzipBytes: 67120 }],
-  ['pt-br', { bytes: 328000, gzipBytes: 66112 }],
-  ['ko-kr', { bytes: 327360, gzipBytes: 65616 }],
+  // The Linux Running programs page adds about 180 labels per locale (origins,
+  // launches, facts, details). Round only measured locale sizes to 32 raw / 16 gzip
+  // bytes; English gets its first override. Application chunk limits stay fixed.
+  ['fr-fr', { bytes: 356416, gzipBytes: 71856 }],
+  ['de-de', { bytes: 345248, gzipBytes: 72320 }],
+  ['es-es', { bytes: 347328, gzipBytes: 70048 }],
+  ['pt-br', { bytes: 340704, gzipBytes: 69024 }],
+  ['ko-kr', { bytes: 340096, gzipBytes: 68608 }],
   // Retain the finishing-charge labels' additional 128 raw bytes for ja/ru.
-  ['ja-jp', { bytes: 358112, gzipBytes: 68304 }],
-  ['ru-ru', { bytes: 432448, gzipBytes: 77104 }],
-  ['zh-cn', { bytes: 311296, gzipBytes: 63312 }],
-  ['zh-tw', { bytes: 311296, gzipBytes: 63808 }],
-  ['tr-tr', { bytes: 321568, gzipBytes: 64896 }],
+  ['ja-jp', { bytes: 371936, gzipBytes: 71456 }],
+  ['ru-ru', { bytes: 447584, gzipBytes: 80384 }],
+  ['zh-cn', { bytes: 311296, gzipBytes: 66288 }],
+  ['zh-tw', { bytes: 311296, gzipBytes: 66832 }],
+  ['en-us', { bytes: 311296, gzipBytes: 62064 }],
+  ['tr-tr', { bytes: 334336, gzipBytes: 67872 }],
 ]);
 
 function fail(message) {
