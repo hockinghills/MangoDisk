@@ -452,6 +452,28 @@ class SwapTests(unittest.TestCase):
         self.assertIn("on disk", summary)
 
 
+class AppScopeFolding(unittest.TestCase):
+    def test_inline_interpreter_and_own_folder_binary_fold_into_the_app(self):
+        scope = "/user.slice/user-1000.slice/user@1000.service/app.slice/app-empryo\\x2ddesktop-1.scope"
+        app = make_proc(50, 1, "empryo-desktop", cgroup=scope, exe="/opt/Empryo/empryo-desktop")
+        app.start_epoch = 1.0
+        kernel = make_proc(51, 50, "python3", cgroup=scope, exe="/home/linuxbrew/.linuxbrew/bin/python3.14",
+                           cmdline=["/home/linuxbrew/.linuxbrew/bin/python3", "-u", "-c", "import io"])
+        kernel.start_epoch, kernel.cwd = 2.0, pt.Paths.home + "/.omniroute"
+        stem = make_proc(52, 50, "stem", cgroup=scope, exe=pt.Paths.home + "/.empryo/bin/stem")
+        stem.start_epoch = 3.0
+        target = pt.resolve_target(kernel)
+        self.assertTrue(target.inline)
+        self.assertIsNone(target.project)
+        provs = {50: pt.Provenance(kind="system-package", name="empryo"), 51: pt.Provenance(kind="homebrew", name="python"),
+                 52: pt.Provenance(kind="home", name="stem")}
+        targets = {50: pt.Target(family=None, path=app.exe), 51: target, 52: pt.Target(family=None, path=stem.exe)}
+        folded = set()
+        pt.fold_by_cgroup([app, kernel, stem], provs, targets, folded)
+        self.assertEqual(folded, {51, 52})
+        self.assertTrue(any(".omniroute" in n for n in provs[50].notes))
+
+
 class WordingTests(unittest.TestCase):
     def test_verdicts_state_facts(self):
         g = pt.Group(key="k", name="surfshark", prov=pt.Provenance(kind="system-package", name="surfshark"),
@@ -467,7 +489,11 @@ class WordingTests(unittest.TestCase):
     def test_scan_history_shows_memory_change(self):
         g = pt.Group(key="k", name="x", prov=pt.Provenance(kind="manual", name="x"), procs=[], targets=[], launches=[])
         g.mem_kb, g.swap_kb = 900 * 1024, 300 * 1024
-        pt.apply_history([g], [{"time": pt.NOW - 3600, "programs": {"k": {"memory_kb": 400 * 1024, "swap_kb": 0}}}])
+        old = {"time": pt.NOW - 7200, "version": "0.4.0", "programs": {"k": {"memory_kb": 50 * 1024, "swap_kb": 0}}}
+        pt.apply_history([g], [old])
+        self.assertNotIn("memory + swap", g.seen)  # older versions grouped processes differently
+        pt.apply_history([g], [old, {"time": pt.NOW - 3600, "version": pt.VERSION,
+                                     "programs": {"k": {"memory_kb": 400 * 1024, "swap_kb": 0}}}])
         self.assertIn("400 MB at the first of these scans", g.seen)
         self.assertIn("1.2 GB now", g.seen)
 
@@ -543,7 +569,8 @@ class FakeNetdata(http.server.BaseHTTPRequestHandler):
               "cgroup_datahub-opensearch-1.net_eth0", "cgroup_datahub-opensearch-1.net_drops_eth0", "app.omniroute_cpu_utilization",
               "cgroup_datahub-opensearch-1.mem_usage", "cgroup_helicone-ai-gateway.cpu", "cgroup_helicone-ai-gateway.net_eth0",
               "app.cloudflared_cpu_utilization", "app.ydotoold_cpu_utilization", "app.mango_cpu_utilization",
-              "cgroup_user.slice_app.slice_omniroute.service.cpu", "system.ram", "mem.swap"]
+              "cgroup_user.slice_app.slice_omniroute.service.cpu", "system.ram", "mem.swap",
+              "app.chrome_cpu_utilization", "app.chrome_mem_usage", "app.chrome_mem_private_usage", "app.chrome_disk_logical_io"]
     values = {"systemd_netdata.cpu": [20.0, 10.0], "systemd_netdata.io": [100.0, 28.0],
               "cgroup_datahub-opensearch-1.cpu": [1.0, 0.5], "cgroup_datahub-opensearch-1.net_eth0": [8.0, 8.0],
               "cgroup_datahub-opensearch-1.net_drops_eth0": [999.0], "app.omniroute_cpu_utilization": [2.0, 0.0],
@@ -552,6 +579,7 @@ class FakeNetdata(http.server.BaseHTTPRequestHandler):
               "app.mango_cpu_utilization": [1.0], "cgroup_user.slice_app.slice_omniroute.service.cpu": [3.0]}
     # oldest first; served newest first like Netdata does
     daily = {"cgroup_datahub-opensearch-1.mem_usage": [0.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0],
+             "app.chrome_mem_usage": [7000.0, 7000.0, 7000.0], "app.chrome_mem_private_usage": [2000.0, 2100.0, 2200.0],
              "system.ram": [10000.0, 12000.0, 14000.0], "mem.swap": [8000.0, 12000.0, 17000.0]}
     missing = {"app.omniroute_cpu_utilization"}
 
@@ -661,6 +689,22 @@ class NetdataHistoryTests(unittest.TestCase):
         pt.set_verdict(g)
         self.assertIn("quiet right now, but", g.verdict)
         self.assertIn("network traffic", g.verdict)
+
+    def test_app_memory_uses_private_chart_and_labels_logical_io(self):
+        g = self.group(pt.Provenance(kind="system-package", name="google-chrome-stable", installed_at=pt.NOW - 3 * 86400),
+                       [], [make_proc(40, 1, "chrome")])
+        h = self.netdata.history_for(g)
+        self.assertEqual([v for _, v in h["mem_daily"]], [2000.0, 2100.0, 2200.0])
+        text = pt.history_text(h)
+        self.assertIn("mem_private_usage (used)", text)
+        self.assertIn("not only disk", text)
+        self.assertIn("since it was installed", text)
+        self.assertNotIn("last 30 days", text)
+
+    def test_names_tried_once(self):
+        g = self.group(pt.Provenance(kind="venv", name="main.py"), [], [make_proc(41, 1, "python3.14")])
+        g.name = "main.py"
+        self.assertEqual(self.netdata.history_for(g)["no_chart"].count("main.py"), 1)
 
     def test_shared_app_chart_is_named(self):
         tunnel = self.group(pt.Provenance(kind="unit", name="cloudflared-openmuse-helicone"), [], [make_proc(20, 0, "cloudflared")])

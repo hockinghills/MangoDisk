@@ -43,7 +43,7 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -534,7 +534,7 @@ def resolve_target(proc: Proc) -> Target:
         # Interactive shells, REPLs and inline code are identified by the interpreter itself.
         target.path = exe
     target.runner = runner_name(target.path) if family == "node" else None
-    if family in PROJECT_FAMILIES and (target.runner or (target.path == exe and not target.module)):
+    if family in PROJECT_FAMILIES and not target.inline and (target.runner or (target.path == exe and not target.module)):
         # `npm run dev`, `next-server`, and other launches whose script can't be read from argv:
         # the project folder is the best identity available.
         target.project = project_dir(proc)
@@ -1798,11 +1798,21 @@ def fold_by_cgroup(procs: List[Proc], provs: Dict[int, Provenance], targets: Dic
         into = provs[anchor.pid]
         if into.kind == "container":
             continue
+        app_stem = re.split(r"[-_. ]", anchor.comm.lower())[0]
         for proc in group:
             if proc is anchor or provs[proc.pid].key == into.key:
                 continue
-            path = proc.exe or (targets[proc.pid].path or "")
-            if service or path.startswith(HELPER_PREFIXES):
+            target = targets.get(proc.pid) or Target(family=None, path=None)
+            path = proc.exe or (target.path or "")
+            # An app's own helpers: library helpers, code it runs inline in an interpreter, and
+            # binaries it unpacked into a folder named after it (~/.empryo/bin/stem).
+            own_folder = len(app_stem) >= 4 and path.startswith(Paths.home + "/") and any(
+                part.lstrip(".").lower().startswith(app_stem) for part in path[len(Paths.home) + 1:].split("/")[:-1])
+            if service or path.startswith(HELPER_PREFIXES) or target.inline or own_folder:
+                if target.inline and proc.cwd and proc.cwd != Paths.home:
+                    note = f"`{proc.comm}` (pid {proc.pid}) runs code passed on its command line, in folder `{Paths.show(proc.cwd)}`"
+                    if note not in into.notes:
+                        into.notes.append(note)
                 _fold(proc, into, provs, folded)
 
 
@@ -2352,6 +2362,12 @@ class NetdataHistory:
     def series(self, chart: str, seconds: int, points: int) -> List[float]:
         return [value for _, value in self.series_points(chart, seconds, points)]
 
+    def labels(self, chart: str) -> List[str]:
+        """Dimension names of a chart, from a one-point query."""
+        params = {"chart": chart, "after": -600, "points": 1, "format": "json", "options": "abs"}
+        data = self._get(f"/api/v1/data?{urllib.parse.urlencode(params)}", chart) or {}
+        return [str(label) for label in (data.get("labels") or [])[1:]]
+
     def system_memory(self) -> Dict[str, List[Tuple[float, float]]]:
         """Daily averages (MiB) of RAM and swap in use over the last 7 days."""
         out = {}
@@ -2398,7 +2414,9 @@ class NetdataHistory:
                               os.path.basename(proc.cmdline[0].split()[0]) if proc.cmdline and proc.cmdline[0].strip() else ""):
                 if candidate and candidate not in names:
                     names.append(candidate)
-        names += [n for n in (prov.name, group.name.split(" (")[0]) if n and n not in names]
+        for extra in (prov.name, group.name.split(" (")[0]):
+            if extra and extra not in names:
+                names.append(extra)
         skip = GENERIC_APP_NAMES | user_names()
         for name in names:
             if name in skip or len(name) < 3:
@@ -2408,8 +2426,11 @@ class NetdataHistory:
             if chart in self.charts:
                 sources.append((f"every process named `{name}`", {
                     "cpu": chart, "app": name,
-                    "disk": [c for c in (f"app.{name}_disk_logical_io",) if c in self.charts],
-                    "mem": [c for c in (f"app.{name}_mem_usage", f"app.{name}_swap_usage") if c in self.charts]}))
+                    "io": [c for c in (f"app.{name}_disk_logical_io",) if c in self.charts],
+                    # Private memory: RSS summed over many processes counts shared pages again for each one.
+                    "mem": ([c for c in (f"app.{name}_mem_private_usage",) if c in self.charts]
+                            or [c for c in (f"app.{name}_mem_usage",) if c in self.charts])
+                           + [c for c in (f"app.{name}_swap_usage",) if c in self.charts]}))
         return sources
 
     def history_for(self, group: "Group") -> Dict[str, object]:
@@ -2417,7 +2438,8 @@ class NetdataHistory:
         sources = self.sources_for(group, tried)
         failed: List[str] = []
         for where, charts in sources:
-            cpu7 = self.series(charts["cpu"], 7 * 86400, 168)
+            points = self.series_points(charts["cpu"], 7 * 86400, 168)
+            cpu7 = [value for _, value in points]
             if cpu7:
                 break
             failed.append(str(charts["cpu"]))
@@ -2426,14 +2448,17 @@ class NetdataHistory:
                 return {"no_data": [(chart, self.failures.get(chart, "no data points")) for chart in failed]}
             return {"no_chart": tried} if tried else {}
         out: Dict[str, object] = {"source": where, "chart": charts["cpu"],
-                                  "cpu_avg_7d": round(sum(cpu7) / len(cpu7), 3), "cpu_peak_7d": round(max(cpu7), 2)}
+                                  "cpu_avg_7d": round(sum(cpu7) / len(cpu7), 3), "cpu_peak_7d": round(max(cpu7), 2),
+                                  "cpu_query": [len(points), points[0][0], points[-1][0]]}
+        if group.prov.installed_at:
+            out["installed_at"] = group.prov.installed_at
         if charts.get("app"):
             out["app"] = charts["app"]
         cpu30 = self.series(charts["cpu"], 30 * 86400, 120)
         if cpu30:
             out["cpu_avg_30d"] = round(sum(cpu30) / len(cpu30), 3)
         week = 7 * 86400
-        for metric in ("net", "disk"):
+        for metric in ("net", "disk", "io"):
             for chart in charts.get(metric) or []:
                 values = self.series(chart, week, 168)
                 if not values:
@@ -2443,11 +2468,19 @@ class NetdataHistory:
                 factor = 1000 / 8 if metric == "net" else 1024
                 out[f"{metric}_bytes_7d"] = out.get(f"{metric}_bytes_7d", 0) + sum(values) * window * factor
         daily: Dict[float, float] = {}
+        dims: List[str] = []
         for chart in charts.get("mem") or []:
-            for when, mib in self.series_points(chart, week, 7):
+            rows = self.series_points(chart, week, 7)
+            if rows:
+                short = chart.split(".", 1)[1]
+                if charts.get("app") and short.startswith(f"{charts['app']}_"):
+                    short = short[len(str(charts["app"])) + 1:]
+                dims.append(f"{short} ({', '.join(self.labels(chart)) or '?'})")
+            for when, mib in rows:
                 daily[when] = daily.get(when, 0.0) + mib
         if daily:
             out["mem_daily"] = [[when, round(mib, 1)] for when, mib in sorted(daily.items())]
+            out["mem_dims"] = dims
         if failed:
             out["skipped"] = [(chart, self.failures.get(chart, "no data points")) for chart in failed]
         if self.first_entry and NOW - self.first_entry < 30 * 86400:
@@ -2494,17 +2527,27 @@ def history_text(history: Dict[str, object]) -> str:
         return "no matching Netdata chart (looked for program groups: " + ", ".join(f"`{n}`" for n in history["no_chart"][:6]) + ")"
     if history.get("no_data"):
         return "Netdata lists " + "; ".join(f"`{chart}` but returned no data for it ({why})" for chart, why in history["no_data"])
-    parts = [f"CPU last 7 days avg {history['cpu_avg_7d']:.2f}% (busiest hour {history['cpu_peak_7d']:.1f}%)"]
-    if "cpu_avg_30d" in history:
+    installed = history.get("installed_at") or 0
+    new = installed > NOW - 7 * 86400
+    week = f"since it was installed {fmt_date(installed)}" if new else "last 7 days"
+    parts = [f"CPU {week} avg {history['cpu_avg_7d']:.2f}% (busiest hour {history['cpu_peak_7d']:.1f}%)"]
+    if "cpu_avg_30d" in history and not new:
         since = f" (since {fmt_date(history['since'])})" if history.get("since") else ""
-        parts.append(f"last 30 days avg {history['cpu_avg_30d']:.2f}%{since}")
+        if installed > NOW - 30 * 86400:
+            parts.append(f"since it was installed {fmt_date(installed)} avg {history['cpu_avg_30d']:.2f}%")
+        else:
+            parts.append(f"last 30 days avg {history['cpu_avg_30d']:.2f}%{since}")
     if "net_bytes_7d" in history:
-        parts.append(f"network last 7 days {fmt_volume(history['net_bytes_7d'])}")
+        parts.append(f"network {week} {fmt_volume(history['net_bytes_7d'])}")
     if "disk_bytes_7d" in history:
-        parts.append(f"disk I/O last 7 days {fmt_volume(history['disk_bytes_7d'])}")
+        parts.append(f"disk I/O {week} {fmt_volume(history['disk_bytes_7d'])}")
+    if "io_bytes_7d" in history:
+        parts.append(f"read and written {week} {fmt_volume(history['io_bytes_7d'])} "
+                     "(all file, pipe and socket reads and writes, not only disk)")
     trend = memory_trend(history.get("mem_daily") or [])
     if trend:
-        parts.append(f"memory (RAM + swap, daily average) {fmt_mib(trend['from'])} on {fmt_day(trend['from_time'])} → "
+        dims = "; ".join(history.get("mem_dims") or []) or "memory"
+        parts.append(f"memory, daily average of Netdata's {dims}: {fmt_mib(trend['from'])} on {fmt_day(trend['from_time'])} → "
                      f"{fmt_mib(trend['to'])} on {fmt_day(trend['to_time'])}" + (", rising steadily" if trend["growing"] else ""))
     text = "; ".join(parts) + f" (Netdata chart `{history['chart']}`, {history['source']})"
     if history.get("shared_with"):
@@ -2551,7 +2594,8 @@ def load_history(directory: str, limit: int = 60) -> List[dict]:
         try:
             with open(path) as handle:
                 data = json.load(handle)
-            snaps.append({"time": data.get("time"), "programs": {p["key"]: p for p in data.get("programs", [])}})
+            snaps.append({"time": data.get("time"), "version": data.get("version", ""),
+                          "programs": {p["key"]: p for p in data.get("programs", [])}})
         except (OSError, ValueError, KeyError):
             continue
     return snaps
@@ -2564,8 +2608,9 @@ def apply_history(groups: List[Group], history: List[dict]) -> None:
         hits = [s for s in history if group.key in s["programs"]]
         first = min((s["time"] for s in hits), default=None)
         group.seen = f"running in {len(hits) + 1} of {len(history) + 1} scans" + (f" since {fmt_date(first)}" if first else "")
-        if hits:
-            earliest = min(hits, key=lambda s: s["time"] or NOW)
+        same_tool = [s for s in hits if s.get("version", "").split(".")[:2] == VERSION.split(".")[:2]]
+        if same_tool:
+            earliest = min(same_tool, key=lambda s: s["time"] or NOW)
             before = earliest["programs"][group.key]
             then_kb = (before.get("memory_kb") or 0) + (before.get("swap_kb") or 0)
             now_kb = group.mem_kb + group.swap_kb
@@ -2622,7 +2667,7 @@ def memory_week_lines(system: Dict[str, List], groups: List[Group], limit: int =
             growing.append((trend["to"] - trend["from"], g, trend))
     for _, g, trend in sorted(growing, key=lambda item: -item[0])[:limit]:
         lines.append(f"growing: {g.name} {fmt_mib(trend['from'])} ({fmt_day(trend['from_time'])}) → "
-                     f"{fmt_mib(trend['to'])} ({fmt_day(trend['to_time'])}), RAM + swap")
+                     f"{fmt_mib(trend['to'])} ({fmt_day(trend['to_time'])})")
     return lines
 
 
