@@ -2734,6 +2734,7 @@ dependencies = [
  "crc32fast",
  "dirs 7.0.0",
  "dispatch2",
+ "flate2",
  "gdk-pixbuf",
  "getrandom 0.4.3",
  "gio",

@@ -5,6 +5,7 @@ mod inventory;
 mod package_managers;
 mod privacy;
 mod process_control;
+mod running_programs;
 mod startup;
 mod system_maintenance;
 pub(crate) mod volumes;
@@ -349,6 +350,16 @@ impl PrivacyPlatform for LinuxPlatform {
         _limit: u32,
     ) -> PlatformResult<Vec<crate::PlatformPrivacyDetailEntry>> {
         Ok(Vec::new())
+    }
+}
+
+impl crate::RunningProgramsPlatform for LinuxPlatform {
+    fn capture_running_programs(
+        &self,
+        request: &crate::PlatformRunningProgramsRequest,
+        cancellation: &PlatformCancellation,
+    ) -> PlatformResult<crate::PlatformRunningProgramsSnapshot> {
+        running_programs::capture_running_programs(request, cancellation)
     }
 }
 

@@ -18,6 +18,7 @@ mod file_read;
 mod platform;
 mod privacy;
 mod processes;
+mod running_programs;
 mod scan;
 mod startup;
 mod system_maintenance;
@@ -64,6 +65,14 @@ pub use privacy::{
 pub use processes::{
     ApplicationProcessCloseMode, ApplicationProcessCloseResult, ApplicationProcessTarget,
     RunningProcessIdentity,
+};
+pub use running_programs::{
+    PlatformContainerEngine, PlatformContainerFacts, PlatformInterpreterFamily,
+    PlatformMemoryTotals, PlatformOriginDateSource, PlatformOriginFact, PlatformPackageManager,
+    PlatformPackageRequest, PlatformProcessRecord, PlatformProgramOrigin,
+    PlatformProgramOriginKind, PlatformProgramTarget, PlatformRunningProgramsRequest,
+    PlatformRunningProgramsSnapshot, PlatformServiceUnitFacts, PlatformServiceUnitScope,
+    PlatformUnitFileOrigin, RunningProgramsPlatform,
 };
 #[cfg(not(target_os = "linux"))]
 pub(crate) use scan::FilesystemChangeMonitorBackend;

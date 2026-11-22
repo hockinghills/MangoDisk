@@ -73,6 +73,10 @@ pub struct WindowsPlatform;
 // result so discovery remains available and deterministic.
 impl crate::AiModelDiscoveryPlatform for WindowsPlatform {}
 
+/// The running-programs inventory is implemented for Linux only; the trait default reports
+/// `Unsupported`.
+impl crate::RunningProgramsPlatform for WindowsPlatform {}
+
 impl PrivacyPlatform for WindowsPlatform {
     fn discover_privacy_sources(
         &self,

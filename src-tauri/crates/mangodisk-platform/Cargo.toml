@@ -39,6 +39,8 @@ gdk-pixbuf = { version = "0.18", optional = true }
 gio = { version = "0.18", optional = true }
 glib = { version = "0.18", optional = true }
 gtk = { version = "0.18", optional = true }
+# Reads rotated, gzip-compressed apt history logs.
+flate2 = "1.1.10"
 libc = "0.2.190"
 walkdir = "2.5.0"
 

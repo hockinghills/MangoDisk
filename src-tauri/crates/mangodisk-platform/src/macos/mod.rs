@@ -70,6 +70,10 @@ pub struct MacOsPlatform;
 // result so discovery remains available and deterministic.
 impl crate::AiModelDiscoveryPlatform for MacOsPlatform {}
 
+/// The running-programs inventory is implemented for Linux only; the trait default reports
+/// `Unsupported`.
+impl crate::RunningProgramsPlatform for MacOsPlatform {}
+
 impl PrivacyPlatform for MacOsPlatform {
     fn discover_privacy_sources(
         &self,
