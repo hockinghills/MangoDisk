@@ -6,6 +6,7 @@ mod history;
 pub mod http_client;
 mod privacy;
 mod reporting;
+mod running_programs;
 mod shared;
 mod startup;
 mod storage;
@@ -96,6 +97,13 @@ pub use reporting::{
     CleanupBaselineComparisonService, CleanupBaselineOptions, CleanupBaselineService,
     EngineBenchmarkArtifacts, EngineBenchmarkComparisonArtifacts, EngineBenchmarkComparisonOptions,
     EngineBenchmarkComparisonService, EngineBenchmarkOptions, EngineBenchmarkService,
+};
+pub use running_programs::{
+    ProgramContainer, ProgramContainerEngine, ProgramDateSource, ProgramLaunch, ProgramLaunchKind,
+    ProgramOrigin, ProgramOriginFact, ProgramOriginKind, ProgramPackageManager,
+    ProgramPackageRequest, ProgramProcess, ProgramSafetyClass, ProgramUnitFileOrigin,
+    ProgramUnitScope, RunningProgram, RunningProgramsMemory, RunningProgramsService,
+    RunningProgramsSnapshot, RunningProgramsSummary, RUNNING_PROGRAMS_SCHEMA_VERSION,
 };
 pub use shared::{
     configure_application_paths, ApplicationPaths, ApplicationRestartGuard, CoreError,

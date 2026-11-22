@@ -185,6 +185,7 @@ pub(super) fn capture_running_programs(
         captured_at_ms: now_ms(),
         // SAFETY: geteuid has no preconditions and cannot fail.
         elevated: unsafe { libc::geteuid() } == 0,
+        home_directory: home,
         memory: memory_totals(),
         processes: records,
         units,

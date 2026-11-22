@@ -32,6 +32,8 @@ pub struct PlatformRunningProgramsSnapshot {
     pub captured_at_ms: u64,
     /// Whether the capture could read other users' processes in full.
     pub elevated: bool,
+    /// Home folder of the user the capture runs as; programs found under it were added by that user.
+    pub home_directory: Option<PathBuf>,
     pub memory: PlatformMemoryTotals,
     pub processes: Vec<PlatformProcessRecord>,
     /// Service units seen in process cgroups, with the file that defines each one.
@@ -263,7 +265,7 @@ impl PlatformProgramOrigin {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PlatformServiceUnitScope {
     User,
     System,

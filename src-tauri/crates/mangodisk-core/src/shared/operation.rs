@@ -37,6 +37,7 @@ pub(crate) enum CoordinatedOperationKind {
     PermanentDelete,
     StartupScan,
     StartupChange,
+    RunningProgramsScan,
     SystemSettingsScan,
     SystemSettingsChange,
     SystemMaintenanceScan,
@@ -62,6 +63,7 @@ impl CoordinatedOperationKind {
             Self::PermanentDelete => "permanent_delete",
             Self::StartupScan => "startup_scan",
             Self::StartupChange => "startup_change",
+            Self::RunningProgramsScan => "running_programs_scan",
             Self::SystemSettingsScan => "system_settings_scan",
             Self::SystemSettingsChange => "system_settings_change",
             Self::SystemMaintenanceScan => "system_maintenance_scan",
@@ -79,7 +81,12 @@ impl CoordinatedOperationKind {
     /// shared scan claims and exclusive mutation claims so unrelated pages remain responsive.
     fn resource_claims(self) -> Vec<ResourceClaim> {
         match self {
-            Self::CleanupScan | Self::Analysis | Self::LargeFiles | Self::DuplicateFiles => vec![],
+            // The running-program inventory only reads /proc and package databases.
+            Self::CleanupScan
+            | Self::Analysis
+            | Self::LargeFiles
+            | Self::DuplicateFiles
+            | Self::RunningProgramsScan => vec![],
             Self::ApplicationScan | Self::ApplicationLeftoverScan => vec![ResourceClaim::shared(
                 CoordinatedResource::ApplicationInventory,
             )],
@@ -244,6 +251,12 @@ impl OperationCancellationToken {
     pub const fn startup_scan() -> Self {
         Self {
             kind: CoordinatedOperationKind::StartupScan,
+        }
+    }
+
+    pub const fn running_programs_scan() -> Self {
+        Self {
+            kind: CoordinatedOperationKind::RunningProgramsScan,
         }
     }
 
