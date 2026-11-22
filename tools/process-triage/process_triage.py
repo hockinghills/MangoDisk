@@ -43,7 +43,7 @@ import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-VERSION = "0.7.3"
+VERSION = "0.7.4"
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 PF_KTHREAD = 0x00200000
 NOW = time.time()
@@ -2500,12 +2500,6 @@ class NetdataHistory:
         if daily:
             out["mem_daily"] = [[when, round(mib, 1)] for when, mib in sorted(daily.items())]
             out["mem_dims"] = dims
-            measured_mib = (group.mem_kb + group.swap_kb) / 1024
-            latest = out["mem_daily"][-1][1]
-            running_then = group.oldest_start < out["mem_daily"][-1][0]
-            if charts.get("app") and running_then and measured_mib >= 50 and latest * 3 < measured_mib:
-                return {"reject": f"it holds {fmt_mib(latest)} while this program uses {fmt_mib(measured_mib)}, "
-                                  "so it is counting other processes"}
         if self.first_entry and NOW - self.first_entry < 30 * 86400:
             out["since"] = self.first_entry
         return out

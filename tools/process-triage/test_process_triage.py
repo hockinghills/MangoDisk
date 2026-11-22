@@ -712,12 +712,13 @@ class NetdataHistoryTests(unittest.TestCase):
         self.assertNotIn("cpu_avg_7d", h)
         self.assertIn("HTTP 404", pt.history_text(h))
 
-    def test_stale_and_mismatched_charts_are_rejected(self):
+    def test_stale_charts_are_rejected_and_smaller_ones_kept(self):
         stale = self.group(pt.Provenance(kind="manual", name="stalechart"), [], [make_proc(44, 1, "stalechart")])
         self.assertIn("its last data is from", pt.history_text(self.netdata.history_for(stale)))
+        # Netdata counts private memory and the scan counts PSS, so a smaller chart is not a wrong chart.
         big = self.group(pt.Provenance(kind="system-package", name="google-chrome-stable"), [], [make_proc(45, 1, "chrome")])
         big.mem_kb = 20 * 1024 * 1024
-        self.assertIn("counting other processes", pt.history_text(self.netdata.history_for(big)))
+        self.assertIn("cpu_avg_7d", self.netdata.history_for(big))
 
     def test_names_tried_once(self):
         g = self.group(pt.Provenance(kind="venv", name="main.py"), [], [make_proc(41, 1, "python3.14")])
