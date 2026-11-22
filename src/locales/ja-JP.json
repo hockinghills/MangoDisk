@@ -1527,7 +1527,8 @@
       "loginItem": "ログイン時に開くアプリ",
       "backgroundTask": "バックグラウンドログイン項目",
       "embeddedItem": "アプリ付属の起動項目",
-      "advancedAutoRun": "高度な自動実行"
+      "advancedAutoRun": "高度な自動実行",
+      "autostartEntry": "自動起動エントリ"
     },
     "configuredStates": {
       "mixed": "一部有効",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "一部のサービスの変更がシステムに拒否されました。管理者の承認でもアクセス制限を解除できない場合があります",
+      "linuxAuthorizationDenied": "システムが変更を許可しませんでした。パスワードの入力画面がキャンセルされた可能性があります",
       "accessDenied": "このスタートアップ項目の変更がシステムに拒否されました。必要な権限を確認してください",
       "title": "変更の確認",
       "checking": "スタートアップ項目を確認しています…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "macOS が管理する項目です。ログイン項目で変更できます",
       "viewOnly": "この項目は表示のみ可能で、MangoDisk から直接変更することはできません",
       "protectedService": "このサービスは Windows によって保護されているため、ここでは変更できません",
+      "linuxSessionManaged": "デスクトップセッションまたはシステムがこの項目に依存しているため、ここではオフにできません",
       "openLoginItemsSettings": "ログイン項目設定を開く",
       "source": "起動タイプ",
       "startTiming": {

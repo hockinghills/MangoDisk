@@ -265,7 +265,13 @@ watch(
         )
       );
       const description = deniedItems.length
-        ? t(deniedServices ? 'startup.change.serviceAccessDenied' : 'startup.change.accessDenied')
+        ? t(
+            OperatingSystemService.isLinux()
+              ? 'startup.change.linuxAuthorizationDenied'
+              : deniedServices
+                ? 'startup.change.serviceAccessDenied'
+                : 'startup.change.accessDenied'
+          )
         : undefined;
       toast.warning(
         t(

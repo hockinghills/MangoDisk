@@ -75,7 +75,6 @@ export type PageId = (typeof PAGE_IDS)[keyof typeof PAGE_IDS];
 
 const LINUX_UNAVAILABLE_PAGES: ReadonlySet<PageId> = new Set([
   PAGE_IDS.applicationUninstall,
-  PAGE_IDS.startup,
   PAGE_IDS.systemOptimization,
 ]);
 

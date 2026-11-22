@@ -1527,7 +1527,8 @@
       "loginItem": "Oturum açıldığında açılan uygulama",
       "backgroundTask": "Arka plan oturum açma öğesi",
       "embeddedItem": "Uygulamanın sağladığı başlangıç öğesi",
-      "advancedAutoRun": "Gelişmiş otomatik çalıştırma"
+      "advancedAutoRun": "Gelişmiş otomatik çalıştırma",
+      "autostartEntry": "Otomatik başlatma girdisi"
     },
     "configuredStates": {
       "mixed": "Kısmen etkin",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "Windows bir veya daha fazla hizmette değişikliği reddetti. Yönetici onayı bu hizmetlerin izin kısıtlamalarını aşamayabilir",
+      "linuxAuthorizationDenied": "Sistem değişikliğe izin vermedi. Parola penceresi iptal edilmiş olabilir",
       "accessDenied": "Sistem bu başlangıç öğesinin değiştirilmesine izin vermedi. Gerekli izinleri kontrol edin",
       "title": "Değişiklikleri onayla",
       "checking": "Başlangıç öğeleri kontrol ediliyor…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "Bu öğeyi macOS yönetir; Oturum Açma Öğeleri'nden değiştirebilirsiniz",
       "viewOnly": "Bu öğe görüntülenebilir ancak MangoDisk'te doğrudan değiştirilemez",
       "protectedService": "Bu hizmet Windows tarafından korunur ve buradan değiştirilemez",
+      "linuxSessionManaged": "Masaüstü oturumunuz veya sistem bu öğeye bağlı olduğundan burada kapatılamaz",
       "openLoginItemsSettings": "Oturum Açma Öğeleri ayarlarını aç",
       "source": "Başlangıç türü",
       "startTiming": {

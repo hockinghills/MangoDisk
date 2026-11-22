@@ -33,8 +33,9 @@ mod startup_helper {
 
     const HELPER_FAILURE_EXIT_CODE: i32 = 70;
 
-    /// Linux startup items belong to the user scope and do not need an elevated
-    /// helper. Keep the protocol guard so mixed arguments never start Tauri.
+    /// Linux does not use an elevated helper: user items are changed directly and
+    /// system services through `systemctl`, which asks polkit for authorization.
+    /// Keep the protocol guard so mixed arguments never start Tauri.
     pub fn run_startup_helper_mode<I>(arguments: I) -> Option<i32>
     where
         I: IntoIterator<Item = OsString>,

@@ -1527,7 +1527,8 @@
       "loginItem": "登录时打开的程序",
       "backgroundTask": "后台登录项",
       "embeddedItem": "应用自带启动项",
-      "advancedAutoRun": "高级自动运行"
+      "advancedAutoRun": "高级自动运行",
+      "autostartEntry": "自动启动项"
     },
     "configuredStates": {
       "mixed": "部分启用",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "系统拒绝修改部分服务，管理员授权也可能无法更改其权限限制",
+      "linuxAuthorizationDenied": "系统未授权此更改。密码对话框可能已被取消",
       "accessDenied": "系统拒绝修改此启动项，请检查相关权限",
       "title": "确认更改",
       "checking": "正在检查启动项…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "此项目由系统管理，可在系统登录项中更改",
       "viewOnly": "此项目只能查看，无法在 MangoDisk 中直接更改",
       "protectedService": "此服务受 Windows 保护，无法在此更改",
+      "linuxSessionManaged": "桌面会话或系统依赖此项，因此无法在此关闭",
       "openLoginItemsSettings": "打开登录项设置",
       "source": "启动类型",
       "startTiming": {

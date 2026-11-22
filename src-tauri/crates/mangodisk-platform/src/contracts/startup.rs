@@ -83,6 +83,8 @@ pub enum PlatformStartupSourceKind {
     BackgroundTask,
     EmbeddedItem,
     AdvancedAutoRun,
+    /// An XDG autostart `.desktop` entry started by the desktop session at login.
+    AutostartEntry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

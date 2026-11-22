@@ -1527,7 +1527,8 @@
       "loginItem": "Application ouverte lors de la connexion",
       "backgroundTask": "Élément de connexion en arrière-plan",
       "embeddedItem": "Élément de démarrage fourni par l'application",
-      "advancedAutoRun": "Exécution automatique avancée"
+      "advancedAutoRun": "Exécution automatique avancée",
+      "autostartEntry": "Entrée de démarrage automatique"
     },
     "configuredStates": {
       "mixed": "Partiellement activé",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "Windows a refusé les modifications apportées à un ou plusieurs services. L'approbation de l'administrateur ne peut pas outrepasser ses restrictions d'autorisation",
+      "linuxAuthorizationDenied": "Le système n'a pas autorisé la modification. La boîte de dialogue du mot de passe a peut-être été annulée",
       "accessDenied": "Le système a refusé les modifications apportées à cet élément de démarrage. Vérifiez les autorisations requises",
       "title": "Confirmer les modifications",
       "checking": "Vérification des éléments de démarrage…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "macOS gère cet élément ; vous pouvez le modifier dans les réglages d’ouverture de session",
       "viewOnly": "Cet élément peut être consulté mais ne peut pas être modifié directement dans MangoDisk",
       "protectedService": "Ce service est protégé par Windows et ne peut pas être modifié ici",
+      "linuxSessionManaged": "Votre session de bureau ou le système dépend de cet élément ; il ne peut donc pas être désactivé ici",
       "openLoginItemsSettings": "Ouvrir les réglages d’ouverture de session",
       "source": "Type de démarrage",
       "startTiming": {

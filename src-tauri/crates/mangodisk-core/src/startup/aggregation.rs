@@ -301,6 +301,7 @@ impl From<PlatformStartupSourceKind> for StartupSourceKind {
             PlatformStartupSourceKind::BackgroundTask => Self::BackgroundTask,
             PlatformStartupSourceKind::EmbeddedItem => Self::EmbeddedItem,
             PlatformStartupSourceKind::AdvancedAutoRun => Self::AdvancedAutoRun,
+            PlatformStartupSourceKind::AutostartEntry => Self::AutostartEntry,
         }
     }
 }

@@ -1527,7 +1527,8 @@
       "loginItem": "登入時開啟的程式",
       "backgroundTask": "背景登入項目",
       "embeddedItem": "應用程式自帶啟動項目",
-      "advancedAutoRun": "進階自動執行"
+      "advancedAutoRun": "進階自動執行",
+      "autostartEntry": "自動啟動項目"
     },
     "configuredStates": {
       "mixed": "部分啟用",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "系統拒絕修改部分服務，管理員授權也可能無法變更其權限限制",
+      "linuxAuthorizationDenied": "系統未授權此變更。密碼對話方塊可能已被取消",
       "accessDenied": "系統拒絕修改此啟動項目，請檢查相關權限",
       "title": "確認變更",
       "checking": "正在檢查啟動項目…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "此項目由系統管理，可在系統登入項目中更改",
       "viewOnly": "此項目僅供檢視，無法在 MangoDisk 中直接變更",
       "protectedService": "此服務受 Windows 保護，無法在此變更",
+      "linuxSessionManaged": "桌面工作階段或系統依賴此項目，因此無法在此關閉",
       "openLoginItemsSettings": "開啟登入項目設定",
       "source": "啟動類型",
       "startTiming": {

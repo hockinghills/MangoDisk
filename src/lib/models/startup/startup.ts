@@ -9,7 +9,8 @@ export type StartupSourceKind =
   | 'loginItem'
   | 'backgroundTask'
   | 'embeddedItem'
-  | 'advancedAutoRun';
+  | 'advancedAutoRun'
+  | 'autostartEntry';
 
 export type StartupScope = 'currentUser' | 'user' | 'allUsers' | 'machine' | 'system';
 export type StartupTrigger =

@@ -1527,7 +1527,8 @@
       "loginItem": "App beim Anmelden geöffnet",
       "backgroundTask": "Anmeldeelement im Hintergrund",
       "embeddedItem": "Von der App bereitgestelltes Startelement",
-      "advancedAutoRun": "Erweiterte Autostart"
+      "advancedAutoRun": "Erweiterte Autostart",
+      "autostartEntry": "Autostart-Eintrag"
     },
     "configuredStates": {
       "mixed": "Teilweise aktiviert",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "Windows hat Änderungen an einem oder mehreren Diensten abgelehnt. Die Genehmigung des Administrators darf ihre Berechtigungsbeschränkungen nicht außer Kraft setzen",
+      "linuxAuthorizationDenied": "Das System hat die Änderung nicht autorisiert. Möglicherweise wurde der Passwortdialog abgebrochen",
       "accessDenied": "Das System hat Änderungen an diesem Startelement abgelehnt. Überprüfen Sie die erforderlichen Berechtigungen",
       "title": "Änderungen bestätigen",
       "checking": "Startelemente werden überprüft…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "macOS verwaltet dieses Element; Änderungen sind unter „Anmeldeobjekte“ möglich",
       "viewOnly": "Dieses Element kann angezeigt, aber nicht direkt in MangoDisk geändert werden",
       "protectedService": "Dieser Dienst ist durch Windows geschützt und kann hier nicht geändert werden",
+      "linuxSessionManaged": "Ihre Desktop-Sitzung oder das System ist auf dieses Element angewiesen, daher kann es hier nicht ausgeschaltet werden",
       "openLoginItemsSettings": "Einstellungen für Anmeldeobjekte öffnen",
       "source": "Starttyp",
       "startTiming": {

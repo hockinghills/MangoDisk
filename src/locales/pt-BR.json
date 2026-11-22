@@ -1527,7 +1527,8 @@
       "loginItem": "Aplicativo aberto no login",
       "backgroundTask": "Item de login em segundo plano",
       "embeddedItem": "Item de inicialização fornecido pelo app",
-      "advancedAutoRun": "Autorun avançado"
+      "advancedAutoRun": "Autorun avançado",
+      "autostartEntry": "Entrada de inicialização automática"
     },
     "configuredStates": {
       "mixed": "Parcialmente habilitado",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "O Windows impediu alterações em um ou mais serviços. A autorização do administrador pode não superar as restrições de permissão desses serviços",
+      "linuxAuthorizationDenied": "O sistema não autorizou a alteração. A janela de senha pode ter sido cancelada",
       "accessDenied": "O sistema impediu alterações neste item de inicialização. Confira as permissões necessárias",
       "title": "Confirmar alterações",
       "checking": "Verificando itens de inicialização…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "O macOS gerencia este item; você pode alterá-lo nos Itens de Início",
       "viewOnly": "Este item pode ser visualizado, mas não pode ser alterado diretamente no MangoDisk",
       "protectedService": "Este serviço é protegido pelo Windows e não pode ser alterado aqui",
+      "linuxSessionManaged": "Sua sessão da área de trabalho ou o sistema depende deste item, por isso ele não pode ser desativado aqui",
       "openLoginItemsSettings": "Abrir Configurações de Itens de Login",
       "source": "Tipo de inicialização",
       "startTiming": {

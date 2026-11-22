@@ -86,11 +86,14 @@ describe('application shell layout', () => {
 
   it('hides Linux workspaces whose platform operations are unavailable', () => {
     expect(isPageAvailableOnPlatform(PAGE_IDS.applicationUninstall, 'linux')).toBe(false);
-    expect(isPageAvailableOnPlatform(PAGE_IDS.startup, 'linux')).toBe(false);
+    expect(isPageAvailableOnPlatform(PAGE_IDS.startup, 'linux')).toBe(true);
     expect(isPageAvailableOnPlatform(PAGE_IDS.systemOptimization, 'linux')).toBe(false);
     expect(isPageAvailableOnPlatform(PAGE_IDS.systemMaintenance, 'linux')).toBe(true);
 
-    expect(primaryNavGroupsForPlatform('linux')[2]?.items.map(item => item.id)).toEqual([PAGE_IDS.systemMaintenance]);
+    expect(primaryNavGroupsForPlatform('linux')[2]?.items.map(item => item.id)).toEqual([
+      PAGE_IDS.startup,
+      PAGE_IDS.systemMaintenance,
+    ]);
   });
 
   it('keeps the complete navigation on supported desktop platforms', () => {

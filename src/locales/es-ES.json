@@ -1527,7 +1527,8 @@
       "loginItem": "Aplicación abierta al iniciar sesión",
       "backgroundTask": "Elemento de inicio de sesión en segundo plano",
       "embeddedItem": "Elemento de inicio proporcionado por la aplicación",
-      "advancedAutoRun": "Ejecución automática avanzada"
+      "advancedAutoRun": "Ejecución automática avanzada",
+      "autostartEntry": "Entrada de inicio automático"
     },
     "configuredStates": {
       "mixed": "Parcialmente habilitado",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "Windows negó cambios en uno o más servicios. La aprobación del administrador no puede anular sus restricciones de permiso",
+      "linuxAuthorizationDenied": "El sistema no autorizó el cambio. Es posible que se cancelara el cuadro de diálogo de la contraseña",
       "accessDenied": "El sistema negó cambios en este elemento de inicio. Comprueba los permisos requeridos",
       "title": "Confirmar cambios",
       "checking": "Comprobando elementos de inicio",
@@ -1643,6 +1645,7 @@
       "systemManaged": "macOS gestiona este elemento; puedes modificarlo en los ajustes de ítems de inicio",
       "viewOnly": "Este elemento se puede ver pero no se puede cambiar directamente en MangoDisk",
       "protectedService": "Este servicio está protegido por Windows y no se puede cambiar aquí",
+      "linuxSessionManaged": "Tu sesión de escritorio o el sistema dependen de este elemento, por lo que no se puede desactivar aquí",
       "openLoginItemsSettings": "Abrir ajustes de ítems de inicio",
       "source": "Tipo de inicio",
       "startTiming": {

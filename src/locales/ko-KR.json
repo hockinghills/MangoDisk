@@ -1527,7 +1527,8 @@
       "loginItem": "로그인 시 열리는 앱",
       "backgroundTask": "백그라운드 로그인 항목",
       "embeddedItem": "앱 제공 시작 항목",
-      "advancedAutoRun": "고급 자동 실행"
+      "advancedAutoRun": "고급 자동 실행",
+      "autostartEntry": "자동 시작 항목"
     },
     "configuredStates": {
       "mixed": "일부 켜짐",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "시스템이 일부 서비스의 변경을 거부했습니다. 관리자 승인으로도 해당 권한 제한을 해제하지 못할 수 있습니다",
+      "linuxAuthorizationDenied": "시스템이 변경을 승인하지 않았습니다. 암호 입력 창이 취소되었을 수 있습니다",
       "accessDenied": "시스템이 이 시작 항목의 변경을 거부했습니다. 필요한 권한을 확인하세요",
       "title": "변경 확인",
       "checking": "시작 항목 확인 중…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "macOS에서 관리하는 항목입니다. 로그인 항목에서 변경할 수 있습니다",
       "viewOnly": "이 항목은 볼 수만 있으며 MangoDisk에서 직접 변경할 수 없습니다",
       "protectedService": "이 서비스는 Windows에서 보호하므로 여기에서 변경할 수 없습니다",
+      "linuxSessionManaged": "데스크톱 세션이나 시스템이 이 항목에 의존하므로 여기서 끌 수 없습니다",
       "openLoginItemsSettings": "로그인 항목 설정 열기",
       "source": "시작 유형",
       "startTiming": {

@@ -1527,7 +1527,8 @@
       "loginItem": "App opened at sign-in",
       "backgroundTask": "Background login item",
       "embeddedItem": "App-provided startup item",
-      "advancedAutoRun": "Advanced autorun"
+      "advancedAutoRun": "Advanced autorun",
+      "autostartEntry": "Autostart entry"
     },
     "configuredStates": {
       "mixed": "Partially enabled",
@@ -1568,6 +1569,7 @@
     },
     "change": {
       "serviceAccessDenied": "Windows denied changes to one or more services. Administrator approval may not override their permission restrictions",
+      "linuxAuthorizationDenied": "The system did not authorize the change. The password dialog may have been cancelled",
       "accessDenied": "The system denied changes to this startup item. Check the required permissions",
       "title": "Confirm changes",
       "checking": "Checking startup items…",
@@ -1643,6 +1645,7 @@
       "systemManaged": "macOS manages this item; you can change it in Login Items",
       "viewOnly": "This item can be viewed but cannot be changed directly in MangoDisk",
       "protectedService": "This service is protected by Windows and cannot be changed here",
+      "linuxSessionManaged": "Your desktop session or the system depends on this item, so it cannot be switched off here",
       "openLoginItemsSettings": "Open Login Items Settings",
       "source": "Startup type",
       "startTiming": {

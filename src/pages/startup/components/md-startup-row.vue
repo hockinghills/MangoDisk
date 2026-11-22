@@ -63,6 +63,7 @@ const { locale, t } = useI18n({ useScope: 'global' });
 const manageableArtifacts = computed(() => props.artifacts.filter(canManageStartupArtifact));
 const groupManageable = computed(() => manageableArtifacts.value.length > 0);
 const systemManaged = computed(() => props.artifacts.some(artifact => artifact.controlCapability === 'systemManaged'));
+const isLinux = computed(() => !props.isWindows && !props.isMacOs);
 const protectedService = computed(
   () =>
     props.isWindows &&
@@ -245,7 +246,9 @@ function detailDiagnostics(artifact: StartupArtifact): string {
                 ? t('startup.detail.protectedService')
                 : isMacOs && systemManaged
                   ? t('startup.detail.systemManaged')
-                  : t('startup.detail.viewOnly')
+                  : isLinux && systemManaged
+                    ? t('startup.detail.linuxSessionManaged')
+                    : t('startup.detail.viewOnly')
           }}
         </span>
         <Button

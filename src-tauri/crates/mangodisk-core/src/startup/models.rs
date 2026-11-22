@@ -17,6 +17,7 @@ pub enum StartupSourceKind {
     BackgroundTask,
     EmbeddedItem,
     AdvancedAutoRun,
+    AutostartEntry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
