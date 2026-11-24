@@ -7,6 +7,7 @@
 mod elevated;
 mod file_facts;
 mod origin;
+mod package_index;
 mod packages;
 mod proc_reader;
 mod python_packages;

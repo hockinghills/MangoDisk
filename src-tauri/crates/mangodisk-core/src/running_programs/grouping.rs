@@ -466,6 +466,7 @@ fn name_added_services(entries: &mut [Entry], units: &[PlatformServiceUnitFacts]
         let package = (entry.origin.kind == ProgramOriginKind::SystemPackage)
             .then(|| entry.origin.name.clone());
         let program = entry.record.name.clone();
+        let package_description = entry.origin.description.clone();
         let origin = renamed.entry(key.clone()).or_insert_with(|| {
             let mut facts_list = vec![ProgramOriginFact::ServiceRunsProgram { program, package }];
             if let Some(path) = &details.fragment_path {
@@ -489,6 +490,9 @@ fn name_added_services(entries: &mut [Entry], units: &[PlatformServiceUnitFacts]
                 install_command: None,
                 install_burst: false,
                 container: None,
+                // The service runs a packaged program; that package's summary describes it.
+                description: package_description.clone(),
+                required_by_count: None,
                 facts: facts_list,
             }
         });

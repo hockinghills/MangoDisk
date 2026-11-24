@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{file_facts::modified_ms, proc_reader::read_text};
+use super::{file_facts::modified_ms, package_index::clean_description, proc_reader::read_text};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct PythonDistribution {
@@ -18,6 +18,7 @@ pub(super) struct PythonDistribution {
     pub installed_at_ms: Option<u64>,
     pub source_url: Option<String>,
     pub editable_dir: Option<PathBuf>,
+    pub summary: Option<String>,
 }
 
 #[derive(Default)]
@@ -109,6 +110,9 @@ fn read_distribution(site: &Path, info_dir: &Path, metadata_name: &str) -> Pytho
         installed_at_ms: modified_ms(&info_dir.join("RECORD")).or_else(|| modified_ms(info_dir)),
         source_url: None,
         editable_dir: None,
+        summary: headers
+            .get("summary")
+            .and_then(|text| clean_description(text)),
     };
     let direct: Option<serde_json::Value> = read_text(&info_dir.join("direct_url.json"), 64 * 1024)
         .and_then(|text| serde_json::from_str(&text).ok());

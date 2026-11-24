@@ -106,13 +106,15 @@ mod tests {
         let snapshot = RunningProgramsService::scan(false).expect("scan succeeds");
         for program in snapshot.programs.iter().take(40) {
             println!(
-                "{:>8} KB {:>6.1}% {:<28} {:?} {:?} {:?}",
+                "{:>8} KB {:>6.1}% {:<28} {:?} {:?} {:?} needed_by={:?} {:?}",
                 program.memory_kb,
                 program.cpu_percent_average,
                 program.name,
                 program.origin.kind,
                 program.safety,
                 program.launches.first().map(|launch| launch.kind),
+                program.origin.required_by_count,
+                program.origin.description,
             );
         }
         assert!(snapshot.summary.process_count > 0);

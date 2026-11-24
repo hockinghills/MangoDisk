@@ -183,6 +183,8 @@ pub enum ProgramOriginFact {
     ContainerNamesUnavailable,
     NoPermission,
     ContainerRunsCommand(String),
+    /// The distro treats the package as part of every system.
+    EssentialPackage,
     /// For an added service: the distro program it runs and that program's package.
     ServiceRunsProgram {
         program: String,
@@ -209,6 +211,10 @@ pub struct ProgramOrigin {
     pub install_command: Option<String>,
     pub install_burst: bool,
     pub container: Option<ProgramContainer>,
+    /// What the program says it is, from its package, project manifest or README.
+    pub description: Option<String>,
+    /// Installed distro packages that depend on this one; `None` when unknown.
+    pub required_by_count: Option<u32>,
     pub facts: Vec<ProgramOriginFact>,
 }
 

@@ -229,6 +229,8 @@ pub enum PlatformOriginFact {
     ContainerNamesUnavailable,
     NoPermission,
     ContainerRunsCommand(String),
+    /// The distro treats the package as part of every system (Essential or required priority).
+    EssentialPackage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -248,6 +250,10 @@ pub struct PlatformProgramOrigin {
     /// Installs within minutes of many others, which points at an install script.
     pub install_burst: bool,
     pub container: Option<PlatformContainerFacts>,
+    /// What the program says it is: the package summary, project description or README line.
+    pub description: Option<String>,
+    /// Installed distro packages that depend on this one; `None` when unknown.
+    pub required_by: Option<u32>,
     pub facts: Vec<PlatformOriginFact>,
 }
 
@@ -266,6 +272,8 @@ impl PlatformProgramOrigin {
             install_command: None,
             install_burst: false,
             container: None,
+            description: None,
+            required_by: None,
             facts: Vec::new(),
         }
     }

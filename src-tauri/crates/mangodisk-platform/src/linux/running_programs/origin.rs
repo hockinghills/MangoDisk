@@ -14,6 +14,7 @@ use super::{
         link_modified_ms, modified_ms, parse_container_created, program_name, GitClone,
         GitDateSource,
     },
+    package_index::clean_description,
     packages::PackageOwners,
     proc_reader::{read_text, RawProcess},
     python_packages::{environment_root, user_sites, PythonDistribution, PythonPackages},
@@ -433,6 +434,7 @@ impl OriginClassifier {
     fn flatpak(&self, app_id: &str) -> PlatformProgramOrigin {
         let mut origin = PlatformProgramOrigin::new(Kind::Flatpak, app_id);
         origin.location = Some(app_id.to_owned());
+        origin.description = flatpak_summary(self.home(), app_id);
         let user_root = self
             .home()
             .map(|home| home.join(".local/share/flatpak/app"));
@@ -478,6 +480,11 @@ impl OriginClassifier {
         origin.package_request = facts.request;
         origin.install_command = facts.install_command;
         origin.install_burst = facts.install_burst;
+        origin.description = facts.description;
+        origin.required_by = facts.required_by;
+        if facts.essential {
+            origin.facts.push(PlatformOriginFact::EssentialPackage);
+        }
         origin
     }
 
@@ -522,6 +529,12 @@ impl OriginClassifier {
             .and_then(|value| value.get("version"))
             .and_then(|value| value.as_str())
             .map(str::to_owned);
+        origin.description = manifest
+            .as_ref()
+            .and_then(|value| value.get("description"))
+            .and_then(|value| value.as_str())
+            .and_then(clean_description)
+            .or_else(|| readme_summary(folder));
         origin.location = Some(folder.to_string_lossy().into_owned());
         origin.installed_at_ms = landed_at_ms(folder);
         origin.date_source = origin
@@ -565,6 +578,9 @@ impl OriginClassifier {
                     .or_else(|| repo.get("url").and_then(|url| url.as_str()))
             })
             .map(str::to_owned);
+        let description = field("description")
+            .and_then(|value| value.as_str())
+            .and_then(clean_description);
         let make = |kind: Kind, facts: Vec<PlatformOriginFact>| {
             let mut origin = PlatformProgramOrigin::new(kind, name.clone());
             origin.version = version.clone();
@@ -574,6 +590,7 @@ impl OriginClassifier {
                 .map(|_| PlatformOriginDateSource::FolderDate);
             origin.source_url = source.clone();
             origin.location = Some(package_dir.to_string_lossy().into_owned());
+            origin.description = description.clone();
             origin.facts = facts;
             origin
         };
@@ -781,6 +798,7 @@ impl OriginClassifier {
             .map(|_| PlatformOriginDateSource::PackageRecord);
         origin.source_url = source;
         origin.location = Some(root_text);
+        origin.description = distribution.summary;
         origin.facts = facts;
         origin
     }
@@ -839,6 +857,7 @@ fn snap(name: &str) -> PlatformProgramOrigin {
     let revision = file_name(&current);
     let mut origin = PlatformProgramOrigin::new(Kind::Snap, name);
     origin.location = Some(name.to_owned());
+    origin.description = snap_summary(name);
     if !revision.is_empty() && revision.chars().all(|ch| ch.is_ascii_digit()) {
         origin.version = Some(format!("rev {revision}"));
         origin.installed_at_ms = modified_ms(Path::new(&format!(
@@ -859,6 +878,7 @@ fn homebrew(cellar: &str, formula: &str, version: &str) -> PlatformProgramOrigin
     let mut origin = PlatformProgramOrigin::new(Kind::Homebrew, formula);
     origin.version = Some(version.to_owned());
     origin.location = Some(format!("{cellar}/{formula}"));
+    origin.description = homebrew_description(&folder, formula);
     match receipt
         .as_ref()
         .and_then(|value| value.get("time"))
@@ -888,6 +908,7 @@ fn homebrew(cellar: &str, formula: &str, version: &str) -> PlatformProgramOrigin
 
 fn from_git(git: GitClone) -> PlatformProgramOrigin {
     let mut origin = PlatformProgramOrigin::new(Kind::GitClone, file_name(&git.root));
+    origin.description = readme_summary(&git.root);
     origin.installed_at_ms = git.cloned_at_ms;
     origin.date_source = git.cloned_at_ms.map(|_| match git.date_source {
         GitDateSource::FirstLogEntry => PlatformOriginDateSource::GitHistory,
@@ -912,6 +933,81 @@ fn from_git(git: GitClone) -> PlatformProgramOrigin {
     }
     origin.location = Some(git.root.to_string_lossy().into_owned());
     origin
+}
+
+/// The first prose paragraph of a README: skips headings, badges, images and HTML.
+fn readme_summary(folder: &Path) -> Option<String> {
+    let text = [
+        "README.md",
+        "README.rst",
+        "README.txt",
+        "README",
+        "readme.md",
+    ]
+    .iter()
+    .find_map(|name| read_text(&folder.join(name), 64 * 1024))?;
+    let mut paragraph = Vec::new();
+    for line in text.lines().map(str::trim) {
+        let decoration = line.starts_with(['#', '!', '[', '<', '=', '-', '*', '`', '|', '.', ':'])
+            || line.chars().all(|ch| matches!(ch, '=' | '-' | '~' | '^'));
+        if line.is_empty() || decoration {
+            if !paragraph.is_empty() {
+                break;
+            }
+            continue;
+        }
+        paragraph.push(line);
+    }
+    clean_description(&paragraph.join(" "))
+}
+
+fn xml_element(text: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&format!("</{tag}>"))? + start;
+    clean_description(&text[start..end])
+}
+
+fn flatpak_summary(home: Option<&Path>, app_id: &str) -> Option<String> {
+    let roots = home
+        .map(|home| home.join(".local/share/flatpak/app"))
+        .into_iter()
+        .chain([PathBuf::from("/var/lib/flatpak/app")]);
+    roots
+        .map(|root| root.join(app_id).join("current/active/files/share"))
+        .flat_map(|share| {
+            [
+                share
+                    .join("metainfo")
+                    .join(format!("{app_id}.metainfo.xml")),
+                share.join("appdata").join(format!("{app_id}.appdata.xml")),
+            ]
+        })
+        .find_map(|path| read_text(&path, 512 * 1024))
+        .and_then(|xml| xml_element(&xml, "summary"))
+}
+
+fn snap_summary(name: &str) -> Option<String> {
+    let yaml = read_text(
+        &Path::new("/snap").join(name).join("current/meta/snap.yaml"),
+        256 * 1024,
+    )?;
+    yaml.lines()
+        .find_map(|line| line.strip_prefix("summary:"))
+        .map(|value| value.trim().trim_matches(['"', '\'']))
+        .and_then(clean_description)
+}
+
+fn homebrew_description(folder: &Path, formula: &str) -> Option<String> {
+    let recipe = read_text(
+        &folder.join(".brew").join(format!("{formula}.rb")),
+        256 * 1024,
+    )?;
+    recipe
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("desc "))
+        .map(|value| value.trim().trim_matches('"'))
+        .and_then(clean_description)
 }
 
 /// Binary name → (crate, version, source) from cargo's install ledger.
@@ -1098,5 +1194,31 @@ mod tests {
             "0123456789abcdef\tdb\tpg\t<no value>\t<no value>\t2024-01-02 03:04:05 +0000 UTC\n",
         );
         assert!(unlabeled[0].1.project.is_empty());
+    }
+
+    #[test]
+    fn readme_summaries_skip_headings_and_badges() {
+        let dir = std::env::temp_dir().join(format!("md-readme-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("README.md"),
+            "# Tool\n\n[![build](x)](y)\n\nSyncs photos to a NAS\nevery night.\n\nMore text.\n",
+        )
+        .unwrap();
+        assert_eq!(
+            readme_summary(&dir).as_deref(),
+            Some("Syncs photos to a NAS every night.")
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn appstream_summaries_are_read() {
+        let xml = "<component><id>x</id><summary>Password manager</summary></component>";
+        assert_eq!(
+            xml_element(xml, "summary").as_deref(),
+            Some("Password manager")
+        );
+        assert_eq!(xml_element(xml, "description"), None);
     }
 }

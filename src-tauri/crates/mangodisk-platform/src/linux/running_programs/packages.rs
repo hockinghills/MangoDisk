@@ -13,6 +13,7 @@ use std::{
 
 use super::{
     file_facts::{civil_local_ms, modified_ms, parse_civil},
+    package_index::{clean_description, PackageIndex},
     proc_reader::{read_bounded, read_text},
     run_tool,
 };
@@ -303,6 +304,9 @@ pub(super) struct PackageFacts {
     pub request: Option<PlatformPackageRequest>,
     pub install_command: Option<String>,
     pub install_burst: bool,
+    pub description: Option<String>,
+    pub required_by: Option<u32>,
+    pub essential: bool,
 }
 
 pub(super) struct PackageOwners {
@@ -310,6 +314,7 @@ pub(super) struct PackageOwners {
     owners: HashMap<PathBuf, Option<String>>,
     apt: Option<AptHistory>,
     manual: Option<BTreeSet<String>>,
+    index: Option<PackageIndex>,
     system_installed_ms: Option<u64>,
 }
 
@@ -338,6 +343,7 @@ impl PackageOwners {
             owners: HashMap::new(),
             apt: None,
             manual: None,
+            index: None,
             system_installed_ms,
         }
     }
@@ -407,7 +413,40 @@ impl PackageOwners {
             facts.installed_at_ms = self.database_date(package, cancellation);
         }
         facts.request = self.request(package, cancellation);
+        match manager {
+            Some(PlatformPackageManager::Dpkg | PlatformPackageManager::Pacman) => {
+                let index = self.index.get_or_insert_with(|| {
+                    if manager == Some(PlatformPackageManager::Dpkg) {
+                        PackageIndex::load_dpkg()
+                    } else {
+                        PackageIndex::load_pacman()
+                    }
+                });
+                facts.description = index.description(package);
+                facts.required_by = index.required_by(package);
+                facts.essential = index.is_essential(package);
+            }
+            Some(PlatformPackageManager::Rpm) => {
+                facts.description = self.rpm_summary(package, cancellation);
+            }
+            None => {}
+        }
         facts
+    }
+
+    fn rpm_summary(&self, package: &str, cancellation: &PlatformCancellation) -> Option<String> {
+        let (_, executable) = self.manager.as_ref()?;
+        let output = run_tool(
+            "running_programs.rpm_summary",
+            executable,
+            &["-q", "--qf", "%{SUMMARY}\n", "--", package],
+            Duration::from_secs(15),
+            cancellation,
+        )?;
+        output
+            .success
+            .then(|| output.stdout.lines().next().and_then(clean_description))
+            .flatten()
     }
 
     fn request(

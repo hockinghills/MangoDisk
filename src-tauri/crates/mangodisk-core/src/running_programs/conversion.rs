@@ -140,6 +140,7 @@ fn fact(fact: PlatformOriginFact) -> ProgramOriginFact {
         P::ContainerNamesUnavailable => C::ContainerNamesUnavailable,
         P::NoPermission => C::NoPermission,
         P::ContainerRunsCommand(command) => C::ContainerRunsCommand(redact_text(&command)),
+        P::EssentialPackage => C::EssentialPackage,
     }
 }
 
@@ -157,6 +158,8 @@ pub(super) fn origin(origin: PlatformProgramOrigin) -> ProgramOrigin {
         install_command: origin.install_command.as_deref().map(redact_text),
         install_burst: origin.install_burst,
         container: origin.container.map(container),
+        description: origin.description,
+        required_by_count: origin.required_by,
         facts: origin.facts.into_iter().map(fact).collect(),
     }
 }
