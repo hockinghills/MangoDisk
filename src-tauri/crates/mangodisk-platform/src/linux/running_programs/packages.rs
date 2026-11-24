@@ -5,8 +5,8 @@
 //! better install date than the package database (that one moves on every upgrade).
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    io::Read,
+    collections::{BTreeSet, HashMap},
+    io::{BufRead, Read},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -14,18 +14,18 @@ use std::{
 use super::{
     file_facts::{civil_local_ms, modified_ms, parse_civil},
     proc_reader::{read_bounded, read_text},
-    run_tool, ToolOutput,
+    run_tool,
 };
 use crate::{PlatformCancellation, PlatformPackageManager, PlatformPackageRequest};
 
 const APT_HISTORY_DIR: &str = "/var/log/apt";
+const DPKG_INFO_DIR: &str = "/var/lib/dpkg/info";
 const APT_HISTORY_BYTES: u64 = 64 * 1024 * 1024;
 /// Packages named in one transaction beyond which it is a desktop install, upgrade or script.
 const BULK_TRANSACTION_PACKAGES: usize = 8;
 /// Installs within this window of each other count toward a burst.
 const BURST_WINDOW_MS: u64 = 20 * 60 * 1000;
 const BURST_TRANSACTIONS: usize = 6;
-const OWNER_QUERY_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Desktop packages that Ubuntu-family installers mark as manually installed even though they
 /// came with the system; for these the apt-mark answer is not evidence of a request.
@@ -362,7 +362,9 @@ impl PackageOwners {
             return;
         };
         let found = match manager {
-            PlatformPackageManager::Dpkg => dpkg_owners(&executable, &pending, cancellation),
+            PlatformPackageManager::Dpkg => {
+                scan_dpkg_lists(Path::new(DPKG_INFO_DIR), &pending, cancellation)
+            }
             PlatformPackageManager::Rpm | PlatformPackageManager::Pacman => {
                 per_path_owners(manager, &executable, &pending, cancellation)
             }
@@ -501,12 +503,12 @@ impl PackageOwners {
         let (manager, executable) = self.manager.as_ref()?;
         match manager {
             PlatformPackageManager::Dpkg => {
-                let exact = PathBuf::from(format!("/var/lib/dpkg/info/{package}.list"));
+                let exact = Path::new(DPKG_INFO_DIR).join(format!("{package}.list"));
                 if let Some(date) = modified_ms(&exact) {
                     return Some(date);
                 }
                 let prefix = format!("{package}:");
-                std::fs::read_dir("/var/lib/dpkg/info")
+                std::fs::read_dir(DPKG_INFO_DIR)
                     .ok()?
                     .filter_map(Result::ok)
                     .find_map(|entry| {
@@ -578,63 +580,53 @@ fn merged_usr_alternate(path: &Path) -> PathBuf {
     }
 }
 
-fn parse_dpkg_search(text: &str) -> BTreeMap<PathBuf, String> {
-    let mut owners = BTreeMap::new();
-    for line in text.lines() {
-        if line.starts_with("diversion ") {
-            continue;
-        }
-        let Some((packages, path)) = line.split_once(": ") else {
-            continue;
-        };
-        let package = packages.split(", ").next().unwrap_or(packages);
-        let package = package.split(':').next().unwrap_or(package);
-        owners
-            .entry(PathBuf::from(path.trim()))
-            .or_insert_with(|| package.to_owned());
-    }
-    owners
+/// Package name of a `/var/lib/dpkg/info/<package>[:<arch>].list` file.
+fn dpkg_list_package(file_name: &str) -> Option<&str> {
+    let stem = file_name.strip_suffix(".list")?;
+    let package = stem.split(':').next().unwrap_or(stem);
+    (!package.is_empty()).then_some(package)
 }
 
-fn dpkg_owners(
-    executable: &Path,
+/// Finds owners by reading dpkg's per-package file lists once. `dpkg -S` matches every argument
+/// as a pattern against every installed file, which takes minutes for a few hundred paths on a
+/// large system; one pass over the lists with a set lookup takes about a second.
+fn scan_dpkg_lists(
+    info_dir: &Path,
     paths: &BTreeSet<PathBuf>,
     cancellation: &PlatformCancellation,
 ) -> HashMap<PathBuf, String> {
+    let mut wanted: HashMap<PathBuf, PathBuf> = HashMap::new();
+    for path in paths {
+        wanted.insert(merged_usr_alternate(path), path.clone());
+    }
+    // Exact paths win over their merged-/usr alternates.
+    for path in paths {
+        wanted.insert(path.clone(), path.clone());
+    }
     let mut found = HashMap::new();
-    let queries: Vec<(PathBuf, PathBuf)> = paths
-        .iter()
-        .flat_map(|path| {
-            [
-                (path.clone(), path.clone()),
-                (merged_usr_alternate(path), path.clone()),
-            ]
-        })
-        .collect();
-    for chunk in queries.chunks(256) {
-        let mut args: Vec<String> = vec!["-S".into(), "--".into()];
-        args.extend(
-            chunk
-                .iter()
-                .map(|(query, _)| query.to_string_lossy().into_owned()),
-        );
-        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        // Unowned paths make dpkg exit with status 1 while still printing the owned ones.
-        let Some(ToolOutput { stdout, .. }) = run_tool(
-            "running_programs.dpkg_search",
-            executable,
-            &refs,
-            OWNER_QUERY_TIMEOUT,
-            cancellation,
-        ) else {
+    let Ok(entries) = std::fs::read_dir(info_dir) else {
+        return found;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        if cancellation.is_cancelled() || found.len() == paths.len() {
+            break;
+        }
+        let file_name = entry.file_name();
+        let Some(package) = file_name.to_str().and_then(dpkg_list_package) else {
             continue;
         };
-        let owners = parse_dpkg_search(&stdout);
-        for (query, original) in chunk {
-            if let Some(package) = owners.get(query) {
-                found
+        let Ok(file) = std::fs::File::open(entry.path()) else {
+            continue;
+        };
+        for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
+            if let Some(original) = wanted.get(Path::new(&line)) {
+                let exact = Path::new(&line) == original.as_path();
+                let slot = found
                     .entry(original.clone())
-                    .or_insert_with(|| package.clone());
+                    .or_insert_with(|| package.to_owned());
+                if exact {
+                    *slot = package.to_owned();
+                }
             }
         }
     }
@@ -748,15 +740,28 @@ mod tests {
     }
 
     #[test]
-    fn dpkg_search_output_maps_paths_to_the_first_package() {
-        let text = "diversion by dash from: /bin/sh\npython3.12-minimal: /usr/bin/python3.12\nlibc6:amd64, libc6-dev:amd64: /usr/lib/x\n";
-        let owners = parse_dpkg_search(text);
+    fn dpkg_lists_map_paths_and_merged_usr_alternates_to_packages() {
+        let dir = std::env::temp_dir().join(format!("md-dpkg-info-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("python3.12-minimal:amd64.list"),
+            "/.\n/usr\n/usr/bin/python3.12\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("coreutils.list"), "/bin/sleep\n").unwrap();
+        std::fs::write(dir.join("coreutils.md5sums"), "/usr/bin/python3.12\n").unwrap();
+        let paths: BTreeSet<PathBuf> = ["/usr/bin/python3.12", "/usr/bin/sleep", "/opt/tool/run"]
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+        let found = scan_dpkg_lists(&dir, &paths, &PlatformCancellation::new(|| false));
         assert_eq!(
-            owners[Path::new("/usr/bin/python3.12")],
+            found[Path::new("/usr/bin/python3.12")],
             "python3.12-minimal"
         );
-        assert_eq!(owners[Path::new("/usr/lib/x")], "libc6");
-        assert!(!owners.contains_key(Path::new("/bin/sh")));
+        assert_eq!(found[Path::new("/usr/bin/sleep")], "coreutils");
+        assert!(!found.contains_key(Path::new("/opt/tool/run")));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -147,7 +147,11 @@ pub(super) fn capture_running_programs(
         .filter_map(|resolved| resolved.target.path.clone())
         .filter(|path| file_facts::is_system_path(path))
         .collect();
+    let owner_paths = system_paths.len();
+    let owners_started = Instant::now();
     owners.look_up(system_paths, cancellation);
+    let owner_lookup_ms = owners_started.elapsed().as_millis();
+    let classify_started = Instant::now();
     let mut classifier = origin::OriginClassifier::new(home.clone(), owners);
     let mut records = Vec::with_capacity(processes.len());
     for (process, resolved) in processes.into_iter().zip(resolved) {
@@ -175,11 +179,23 @@ pub(super) fn capture_running_programs(
             origin,
         });
     }
+    let classify_ms = classify_started.elapsed().as_millis();
+    let units_started = Instant::now();
     let units = service_units(
         &records,
         home.as_deref(),
         &mut classifier.owners,
         cancellation,
+    );
+    log::info!(
+        "linux_running_programs_captured process_count={} owner_paths={} unit_count={} cpu_sample_ms={} owner_lookup_ms={} classify_ms={} unit_ms={}",
+        records.len(),
+        owner_paths,
+        units.len(),
+        sample.as_millis(),
+        owner_lookup_ms,
+        classify_ms,
+        units_started.elapsed().as_millis(),
     );
     Ok(PlatformRunningProgramsSnapshot {
         captured_at_ms: now_ms(),
@@ -322,7 +338,7 @@ fn service_units(
     else {
         return Vec::new();
     };
-    let mut units = Vec::new();
+    let mut shown: Vec<(PlatformServiceUnitScope, BTreeMap<String, String>)> = Vec::new();
     for (scope, names) in wanted {
         let names: Vec<String> = names.into_iter().collect();
         for batch in names.chunks(UNIT_QUERY_BATCH) {
@@ -347,31 +363,41 @@ fn service_units(
             ) else {
                 continue;
             };
-            for block in parse_show(&output.stdout) {
-                let fragment = block
-                    .get("FragmentPath")
-                    .filter(|path| !path.is_empty())
-                    .map(PathBuf::from);
-                units.push(PlatformServiceUnitFacts {
-                    scope,
-                    name: block["Id"].clone(),
-                    fragment_modified_ms: fragment.as_deref().and_then(file_facts::modified_ms),
-                    fragment_origin: unit_file_origin(
-                        fragment.as_deref(),
-                        home,
-                        owners,
-                        cancellation,
-                    ),
-                    fragment_path: fragment,
-                    unit_file_state: block
-                        .get("UnitFileState")
-                        .filter(|state| !state.is_empty())
-                        .cloned(),
-                });
-            }
+            shown.extend(
+                parse_show(&output.stdout)
+                    .into_iter()
+                    .map(|block| (scope, block)),
+            );
         }
     }
-    units
+    let fragment_of = |block: &BTreeMap<String, String>| {
+        block
+            .get("FragmentPath")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+    };
+    // One ownership pass for every unit file instead of one package-manager query per unit.
+    owners.look_up(
+        shown.iter().filter_map(|(_, block)| fragment_of(block)),
+        cancellation,
+    );
+    shown
+        .into_iter()
+        .map(|(scope, block)| {
+            let fragment = fragment_of(&block);
+            PlatformServiceUnitFacts {
+                scope,
+                name: block["Id"].clone(),
+                fragment_modified_ms: fragment.as_deref().and_then(file_facts::modified_ms),
+                fragment_origin: unit_file_origin(fragment.as_deref(), home, owners, cancellation),
+                fragment_path: fragment,
+                unit_file_state: block
+                    .get("UnitFileState")
+                    .filter(|state| !state.is_empty())
+                    .cloned(),
+            }
+        })
+        .collect()
 }
 
 fn unit_file_origin(
