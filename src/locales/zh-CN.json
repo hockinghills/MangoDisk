@@ -4760,7 +4760,8 @@
       "swapUsed": "交换 {used} / {total}",
       "compressedSwap": "压缩交换以 {ram} 内存保存 {stored}",
       "captured": "采集于 {date}",
-      "notElevated": "没有管理员权限时，其他用户的进程会隐藏程序文件和按比例内存，因此部分行显示的信息较少"
+      "notElevated": "没有管理员权限时，其他用户的进程会隐藏程序文件和按比例内存，因此部分行显示的信息较少",
+      "elevated": "已使用管理员权限扫描，所有进程均完整显示"
     },
     "columns": {
       "program": "程序",
@@ -4945,6 +4946,13 @@
       "zygote": "渲染进程启动器",
       "crashHandler": "崩溃报告程序",
       "other": "辅助进程"
+    },
+    "scanElevated": "以管理员权限扫描",
+    "rescanElevated": "以管理员权限重新扫描",
+    "elevation": {
+      "explanation": "管理员权限可让扫描读取 root 和其他用户进程的程序文件、内存和工作文件夹。桌面会要求输入密码；扫描只读取信息",
+      "denied": "管理员授权失败，因此未进行扫描",
+      "unavailable": "管理员权限需要 polkit 软件包中的 pkexec，但它尚未安装"
     }
   }
 }

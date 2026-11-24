@@ -223,6 +223,7 @@ const dynamicKeyGroups = {
     'crashHandler',
     'other',
   ],
+  'runningPrograms.elevation': ['denied', 'unavailable'],
   'runningPrograms.launch': [
     'autostart',
     'appLaunched',

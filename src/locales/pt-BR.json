@@ -4760,7 +4760,8 @@
       "swapUsed": "swap {used} de {total}",
       "compressedSwap": "swap comprimido guarda {stored} em {ram} de RAM",
       "captured": "Capturado em {date}",
-      "notElevated": "Sem direitos de administrador, os processos de outros usuários ocultam arquivos de programa e memória proporcional, por isso algumas linhas mostram menos detalhes"
+      "notElevated": "Sem direitos de administrador, os processos de outros usuários ocultam arquivos de programa e memória proporcional, por isso algumas linhas mostram menos detalhes",
+      "elevated": "Verificado com direitos de administrador; todos os processos aparecem completos"
     },
     "columns": {
       "program": "Programa",
@@ -4945,6 +4946,13 @@
       "zygote": "iniciador de renderizadores",
       "crashHandler": "relator de falhas",
       "other": "processo auxiliar"
+    },
+    "scanElevated": "Verificar com direitos de administrador",
+    "rescanElevated": "Verificar novamente com direitos de administrador",
+    "elevation": {
+      "explanation": "Os direitos de administrador permitem ler o arquivo do programa, a memória e a pasta de trabalho dos processos do root e de outros usuários. A área de trabalho pede sua senha; a verificação só faz leitura",
+      "denied": "A autorização de administrador falhou, então nada foi verificado",
+      "unavailable": "Os direitos de administrador precisam do pkexec, do pacote polkit, que não está instalado"
     }
   }
 }

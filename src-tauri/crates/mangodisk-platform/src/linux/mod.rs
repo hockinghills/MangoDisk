@@ -6,6 +6,7 @@ mod package_managers;
 mod privacy;
 mod process_control;
 mod running_programs;
+pub use running_programs::run_running_programs_helper_mode;
 mod startup;
 mod system_maintenance;
 pub(crate) mod volumes;

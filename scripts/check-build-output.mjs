@@ -151,18 +151,19 @@ const localeChunkLimitOverrides = new Map([
   // bytes; English gets its first override. Application chunk limits stay fixed.
   // Process roles, the process count and the renderer hint add 11 labels; the
   // same rounding applies.
-  ['fr-fr', { bytes: 357376, gzipBytes: 72144 }],
-  ['de-de', { bytes: 346176, gzipBytes: 72608 }],
-  ['es-es', { bytes: 348256, gzipBytes: 70320 }],
-  ['pt-br', { bytes: 341600, gzipBytes: 69312 }],
-  ['ko-kr', { bytes: 341056, gzipBytes: 68896 }],
+  // Administrator-rights scanning adds six labels with the same rounding.
+  ['fr-fr', { bytes: 358176, gzipBytes: 72336 }],
+  ['de-de', { bytes: 346912, gzipBytes: 72800 }],
+  ['es-es', { bytes: 349024, gzipBytes: 70512 }],
+  ['pt-br', { bytes: 342400, gzipBytes: 69488 }],
+  ['ko-kr', { bytes: 341824, gzipBytes: 69056 }],
   // Retain the finishing-charge labels' additional 128 raw bytes for ja/ru.
-  ['ja-jp', { bytes: 373024, gzipBytes: 71776 }],
-  ['ru-ru', { bytes: 448832, gzipBytes: 80720 }],
-  ['zh-cn', { bytes: 311296, gzipBytes: 66592 }],
-  ['zh-tw', { bytes: 311296, gzipBytes: 67136 }],
-  ['en-us', { bytes: 311296, gzipBytes: 62304 }],
-  ['tr-tr', { bytes: 335264, gzipBytes: 68144 }],
+  ['ja-jp', { bytes: 373888, gzipBytes: 71952 }],
+  ['ru-ru', { bytes: 449920, gzipBytes: 80928 }],
+  ['zh-cn', { bytes: 311296, gzipBytes: 66768 }],
+  ['zh-tw', { bytes: 311296, gzipBytes: 67312 }],
+  ['en-us', { bytes: 311296, gzipBytes: 62480 }],
+  ['tr-tr', { bytes: 336000, gzipBytes: 68320 }],
 ]);
 
 function fail(message) {

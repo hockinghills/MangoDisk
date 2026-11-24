@@ -5,6 +5,7 @@
 //! facts stay empty instead of being guessed.
 
 use std::{
+    collections::BTreeMap,
     fs,
     io::Read,
     path::{Path, PathBuf},
@@ -14,6 +15,10 @@ use std::{
 const PF_KTHREAD: u64 = 0x0020_0000;
 const COMMAND_LINE_BYTES: u64 = 64 * 1024;
 const ENVIRONMENT_BYTES: u64 = 256 * 1024;
+/// The only environment variables the inventory uses: they locate an AppImage, an npm project
+/// and the command a shell started. Nothing else from a process environment is kept.
+pub(super) const ENVIRONMENT_KEYS: &[&str] =
+    &["APPIMAGE", "npm_package_json", "npm_lifecycle_script", "_"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct RawProcess {
@@ -27,11 +32,15 @@ pub(super) struct RawProcess {
     pub working_directory: Option<PathBuf>,
     pub cgroup: Option<String>,
     pub started_at_ms: u64,
+    /// Start time in clock ticks since boot; with the pid it identifies one process instance.
+    pub start_ticks: u64,
     pub cpu_ticks: u64,
     pub resident_kb: u64,
     pub proportional_kb: Option<u64>,
     pub swap_kb: u64,
-    /// `APPIMAGE` from the environment, read only for processes running from an AppImage mount.
+    /// The [`ENVIRONMENT_KEYS`] values present in the process environment.
+    pub environment: BTreeMap<String, String>,
+    /// `APPIMAGE` for processes running from an AppImage mount.
     pub appimage: Option<PathBuf>,
     /// Application id from the sandbox's `.flatpak-info`.
     pub flatpak_id: Option<String>,
@@ -160,17 +169,36 @@ pub(super) fn read_text(path: &Path, limit: u64) -> Option<String> {
     read_bounded(path, limit).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Reads one variable from a process environment, which is only readable for your own processes.
-pub(super) fn environment_value(pid: u32, name: &str) -> Option<String> {
-    let bytes = read_bounded(
+/// Reads the [`ENVIRONMENT_KEYS`] from a process environment. Only your own processes are
+/// readable without administrator rights.
+pub(super) fn read_environment(pid: u32) -> BTreeMap<String, String> {
+    let Some(bytes) = read_bounded(
         Path::new(&format!("/proc/{pid}/environ")),
         ENVIRONMENT_BYTES,
-    )?;
-    let prefix = format!("{name}=");
-    bytes.split(|byte| *byte == 0).find_map(|item| {
-        let item = String::from_utf8_lossy(item);
-        item.strip_prefix(&prefix).map(str::to_owned)
-    })
+    ) else {
+        return BTreeMap::new();
+    };
+    bytes
+        .split(|byte| *byte == 0)
+        .filter_map(|item| {
+            let item = String::from_utf8_lossy(item);
+            let (key, value) = item.split_once('=')?;
+            ENVIRONMENT_KEYS
+                .contains(&key)
+                .then(|| (key.to_owned(), value.to_owned()))
+        })
+        .collect()
+}
+
+/// `APPIMAGE` names the image file only for processes running from its mount.
+pub(super) fn appimage_path(
+    executable: Option<&Path>,
+    environment: &BTreeMap<String, String>,
+) -> Option<PathBuf> {
+    executable
+        .filter(|path| path.to_string_lossy().contains("/.mount_"))
+        .and(environment.get("APPIMAGE"))
+        .map(PathBuf::from)
 }
 
 pub(super) fn boot_time_seconds() -> Option<u64> {
@@ -227,11 +255,8 @@ pub(super) fn read_process(
     let cgroup = read_text(&base.join("cgroup"), 64 * 1024)
         .as_deref()
         .and_then(parse_cgroup);
-    let appimage = executable
-        .as_deref()
-        .filter(|path| path.to_string_lossy().contains("/.mount_"))
-        .and_then(|_| environment_value(pid, "APPIMAGE"))
-        .map(PathBuf::from);
+    let environment = read_environment(pid);
+    let appimage = appimage_path(executable.as_deref(), &environment);
     let flatpak_id = cgroup
         .as_deref()
         .filter(|path| path.contains("flatpak"))
@@ -254,10 +279,12 @@ pub(super) fn read_process(
         working_directory,
         cgroup,
         started_at_ms: (started_seconds * 1000.0) as u64,
+        start_ticks: stat.start_ticks,
         cpu_ticks: stat.cpu_ticks,
         resident_kb: status.resident_kb,
         proportional_kb,
         swap_kb: status.swap_kb,
+        environment,
         appimage,
         flatpak_id,
     })

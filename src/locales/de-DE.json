@@ -4760,7 +4760,8 @@
       "swapUsed": "Swap {used} von {total}",
       "compressedSwap": "komprimierter Swap hält {stored} in {ram} RAM",
       "captured": "Erfasst am {date}",
-      "notElevated": "Ohne Administratorrechte verbergen Prozesse anderer Benutzer ihre Programmdateien und ihren proportionalen Speicher, daher zeigen manche Zeilen weniger Details"
+      "notElevated": "Ohne Administratorrechte verbergen Prozesse anderer Benutzer ihre Programmdateien und ihren proportionalen Speicher, daher zeigen manche Zeilen weniger Details",
+      "elevated": "Mit Administratorrechten geprüft, alle Prozesse werden vollständig angezeigt"
     },
     "columns": {
       "program": "Programm",
@@ -4945,6 +4946,13 @@
       "zygote": "Starter für Darstellungsprozesse",
       "crashHandler": "Absturzmelder",
       "other": "Hilfsprozess"
+    },
+    "scanElevated": "Mit Administratorrechten prüfen",
+    "rescanElevated": "Erneut mit Administratorrechten prüfen",
+    "elevation": {
+      "explanation": "Mit Administratorrechten liest die Prüfung Programmdatei, Speicher und Arbeitsordner der Prozesse von root und anderen Benutzern. Der Desktop fragt nach Ihrem Passwort; die Prüfung liest nur",
+      "denied": "Die Administrator-Autorisierung ist fehlgeschlagen, es wurde nichts geprüft",
+      "unavailable": "Administratorrechte benötigen pkexec aus dem Paket polkit, das nicht installiert ist"
     }
   }
 }

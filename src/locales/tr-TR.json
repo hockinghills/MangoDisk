@@ -4760,7 +4760,8 @@
       "swapUsed": "takas {total} içinden {used}",
       "compressedSwap": "sıkıştırılmış takas {stored} veriyi {ram} RAM'de tutuyor",
       "captured": "{date} tarihinde alındı",
-      "notElevated": "Yönetici hakları olmadan diğer kullanıcıların işlemleri program dosyalarını ve orantılı belleği gizler; bu yüzden bazı satırlarda daha az ayrıntı vardır"
+      "notElevated": "Yönetici hakları olmadan diğer kullanıcıların işlemleri program dosyalarını ve orantılı belleği gizler; bu yüzden bazı satırlarda daha az ayrıntı vardır",
+      "elevated": "Yönetici haklarıyla tarandı, tüm işlemler eksiksiz gösteriliyor"
     },
     "columns": {
       "program": "Program",
@@ -4945,6 +4946,13 @@
       "zygote": "oluşturucu başlatıcı",
       "crashHandler": "çökme raporlayıcı",
       "other": "yardımcı işlem"
+    },
+    "scanElevated": "Yönetici haklarıyla tara",
+    "rescanElevated": "Yönetici haklarıyla yeniden tara",
+    "elevation": {
+      "explanation": "Yönetici hakları, root ve diğer kullanıcıların işlemlerinin program dosyasını, belleğini ve çalışma klasörünü okumayı sağlar. Masaüstü parolanızı sorar; tarama yalnızca okur",
+      "denied": "Yönetici yetkilendirmesi başarısız oldu, tarama yapılmadı",
+      "unavailable": "Yönetici hakları için polkit paketindeki pkexec gerekir, ancak kurulu değil"
     }
   }
 }

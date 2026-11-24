@@ -199,6 +199,7 @@ export interface RunningProgramsSnapshot {
   capturedAtMs: number;
   elapsedMs: number;
   elevated: boolean;
+  administratorRightsUnavailable: boolean;
   memory: RunningProgramsMemory;
   programs: RunningProgram[];
   summary: RunningProgramsSummary;

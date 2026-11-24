@@ -37,6 +37,13 @@ fn has_vmware_svga_adapter(drm_root: &std::path::Path) -> bool {
 }
 
 fn main() {
+    // The administrator-rights process reader must exit before anything else initializes.
+    #[cfg(target_os = "linux")]
+    if let Some(code) =
+        mangodisk_platform::linux::run_running_programs_helper_mode(std::env::args_os())
+    {
+        std::process::exit(code);
+    }
     #[cfg(windows)]
     if let Some(code) =
         mangodisk_platform::explorer_integration::run_removal_mode(std::env::args_os())

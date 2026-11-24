@@ -4,6 +4,7 @@
 //! Everything here is read-only. External tools (package managers, container engines and
 //! `systemctl`) are run through the controlled command runner with bounded output and time.
 
+mod elevated;
 mod file_facts;
 mod origin;
 mod packages;
@@ -27,6 +28,8 @@ use crate::{
     PlatformRunningProgramsSnapshot, PlatformServiceUnitFacts, PlatformServiceUnitScope,
     PlatformUnitFileOrigin,
 };
+
+pub use elevated::run_running_programs_helper_mode;
 
 const TOOL_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CPU_SAMPLE_MS: u64 = 5_000;
@@ -111,12 +114,28 @@ pub(super) fn capture_running_programs(
     let boot_seconds = proc_reader::boot_time_seconds()
         .ok_or_else(|| PlatformError::operation_failed("boot time is missing from /proc/stat"))?;
     let ticks_per_second = proc_reader::clock_ticks_per_second();
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let already_root = unsafe { libc::geteuid() } == 0;
+    // Ask for administrator rights before reading, so the CPU sample window does not include
+    // the time spent in the password dialog.
+    let wants_elevation = request.use_administrator_rights && !already_root;
+    let elevated_facts = if wants_elevation {
+        elevated::capture_elevated_facts(cancellation)?
+    } else {
+        None
+    };
+
     let own_pid = std::process::id();
     let mut processes: Vec<proc_reader::RawProcess> = proc_reader::list_pids()
         .into_iter()
         .filter(|pid| *pid != own_pid)
         .filter_map(|pid| proc_reader::read_process(pid, boot_seconds, ticks_per_second))
         .collect();
+    if let Some(facts) = &elevated_facts {
+        for process in &mut processes {
+            elevated::apply_elevated_facts(process, facts);
+        }
+    }
     if cancellation.is_cancelled() {
         return Err(cancelled());
     }
@@ -199,8 +218,8 @@ pub(super) fn capture_running_programs(
     );
     Ok(PlatformRunningProgramsSnapshot {
         captured_at_ms: now_ms(),
-        // SAFETY: geteuid has no preconditions and cannot fail.
-        elevated: unsafe { libc::geteuid() } == 0,
+        elevated: already_root || elevated_facts.is_some(),
+        administrator_rights_unavailable: wants_elevation && elevated_facts.is_none(),
         home_directory: home,
         memory: memory_totals(),
         processes: records,
@@ -485,7 +504,10 @@ mod tests {
     #[ignore = "reads the live /proc of the machine running the tests"]
     fn live_capture_reads_this_machine() {
         let snapshot = capture_running_programs(
-            &PlatformRunningProgramsRequest { cpu_sample_ms: 200 },
+            &PlatformRunningProgramsRequest {
+                cpu_sample_ms: 200,
+                use_administrator_rights: false,
+            },
             &PlatformCancellation::new(|| false),
         )
         .expect("capture succeeds");

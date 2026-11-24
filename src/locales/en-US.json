@@ -4760,7 +4760,8 @@
       "swapUsed": "swap {used} of {total}",
       "compressedSwap": "compressed swap holds {stored} in {ram} of RAM",
       "captured": "Captured {date}",
-      "notElevated": "Other users' processes hide their program files and proportional memory without administrator rights, so some rows show less detail"
+      "notElevated": "Other users' processes hide their program files and proportional memory without administrator rights, so some rows show less detail",
+      "elevated": "Scanned with administrator rights, so every process is shown in full"
     },
     "columns": {
       "program": "Program",
@@ -4945,6 +4946,13 @@
       "zygote": "renderer launcher",
       "crashHandler": "crash reporter",
       "other": "helper process"
+    },
+    "scanElevated": "Scan with administrator rights",
+    "rescanElevated": "Rescan with administrator rights",
+    "elevation": {
+      "explanation": "Administrator rights let the scan read the program file, memory and working folder of processes owned by root and other users. Your desktop asks for your password; the scan only reads",
+      "denied": "Administrator authorization failed, so nothing was scanned",
+      "unavailable": "Administrator rights need pkexec from the polkit package, which is not installed"
     }
   }
 }

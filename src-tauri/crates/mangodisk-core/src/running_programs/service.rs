@@ -26,7 +26,9 @@ impl RunningProgramsService {
         OperationCancellationToken::running_programs_scan().cancel();
     }
 
-    pub fn scan() -> CoreResult<RunningProgramsSnapshot> {
+    /// `use_administrator_rights` asks the desktop for a password so other users' processes are
+    /// read in full; dismissing that request cancels the scan.
+    pub fn scan(use_administrator_rights: bool) -> CoreResult<RunningProgramsSnapshot> {
         let operation = OperationGuard::start(CoordinatedOperationKind::RunningProgramsScan)?;
         let started = Instant::now();
         let flag = operation.cancellation_flag();
@@ -34,6 +36,7 @@ impl RunningProgramsService {
         let capture = current_platform().capture_running_programs(
             &PlatformRunningProgramsRequest {
                 cpu_sample_ms: CPU_SAMPLE_MS,
+                use_administrator_rights,
             },
             &cancellation,
         )?;
@@ -69,8 +72,9 @@ impl RunningProgramsService {
         };
         let elapsed_ms = started.elapsed().as_millis() as u64;
         log::info!(
-            "running_programs_scanned operation_id={} process_count={} program_count={} side_installed_count={} unit_count={} elevated={} elapsed_ms={}",
+            "running_programs_scanned operation_id={} administrator_rights_requested={} process_count={} program_count={} side_installed_count={} unit_count={} elevated={} elapsed_ms={}",
             operation.id(),
+            use_administrator_rights,
             summary.process_count,
             summary.program_count,
             summary.side_installed_count,
@@ -84,6 +88,7 @@ impl RunningProgramsService {
             captured_at_ms: capture.captured_at_ms,
             elapsed_ms,
             elevated: capture.elevated,
+            administrator_rights_unavailable: capture.administrator_rights_unavailable,
             memory,
             programs,
             summary,
@@ -98,7 +103,7 @@ mod tests {
     #[test]
     #[ignore = "captures the live process table of the machine running the tests"]
     fn live_scan_groups_this_machine() {
-        let snapshot = RunningProgramsService::scan().expect("scan succeeds");
+        let snapshot = RunningProgramsService::scan(false).expect("scan succeeds");
         for program in snapshot.programs.iter().take(40) {
             println!(
                 "{:>8} KB {:>6.1}% {:<28} {:?} {:?} {:?}",

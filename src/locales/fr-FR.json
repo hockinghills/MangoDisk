@@ -4760,7 +4760,8 @@
       "swapUsed": "swap {used} sur {total}",
       "compressedSwap": "le swap compressé stocke {stored} dans {ram} de RAM",
       "captured": "Relevé le {date}",
-      "notElevated": "Sans droits administrateur, les processus des autres utilisateurs masquent leurs fichiers programme et leur mémoire proportionnelle ; certaines lignes sont donc moins détaillées"
+      "notElevated": "Sans droits administrateur, les processus des autres utilisateurs masquent leurs fichiers programme et leur mémoire proportionnelle ; certaines lignes sont donc moins détaillées",
+      "elevated": "Analysé avec les droits administrateur : chaque processus est affiché en entier"
     },
     "columns": {
       "program": "Programme",
@@ -4945,6 +4946,13 @@
       "zygote": "lanceur de processus de rendu",
       "crashHandler": "rapport de plantage",
       "other": "processus auxiliaire"
+    },
+    "scanElevated": "Analyser avec les droits administrateur",
+    "rescanElevated": "Analyser à nouveau avec les droits administrateur",
+    "elevation": {
+      "explanation": "Les droits administrateur permettent de lire le fichier programme, la mémoire et le dossier de travail des processus de root et des autres utilisateurs. Le bureau demande votre mot de passe ; l'analyse ne fait que lire",
+      "denied": "L'autorisation administrateur a échoué, rien n'a été analysé",
+      "unavailable": "Les droits administrateur nécessitent pkexec, du paquet polkit, qui n'est pas installé"
     }
   }
 }

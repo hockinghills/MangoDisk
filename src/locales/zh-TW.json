@@ -4760,7 +4760,8 @@
       "swapUsed": "交換 {used} / {total}",
       "compressedSwap": "壓縮交換以 {ram} 記憶體保存 {stored}",
       "captured": "擷取於 {date}",
-      "notElevated": "沒有系統管理員權限時，其他使用者的處理程序會隱藏程式檔案和按比例記憶體，因此部分列顯示的資訊較少"
+      "notElevated": "沒有系統管理員權限時，其他使用者的處理程序會隱藏程式檔案和按比例記憶體，因此部分列顯示的資訊較少",
+      "elevated": "已使用系統管理員權限掃描，所有處理程序均完整顯示"
     },
     "columns": {
       "program": "程式",
@@ -4945,6 +4946,13 @@
       "zygote": "轉譯處理程序啟動器",
       "crashHandler": "當機回報程式",
       "other": "輔助處理程序"
+    },
+    "scanElevated": "以系統管理員權限掃描",
+    "rescanElevated": "以系統管理員權限重新掃描",
+    "elevation": {
+      "explanation": "系統管理員權限可讓掃描讀取 root 與其他使用者處理程序的程式檔案、記憶體和工作資料夾。桌面會要求輸入密碼；掃描只會讀取資訊",
+      "denied": "系統管理員授權失敗，因此未進行掃描",
+      "unavailable": "系統管理員權限需要 polkit 套件中的 pkexec，但尚未安裝"
     }
   }
 }

@@ -4760,7 +4760,8 @@
       "swapUsed": "swap {used} de {total}",
       "compressedSwap": "el swap comprimido guarda {stored} en {ram} de RAM",
       "captured": "Capturado el {date}",
-      "notElevated": "Sin derechos de administrador, los procesos de otros usuarios ocultan sus archivos de programa y su memoria proporcional, así que algunas filas muestran menos detalle"
+      "notElevated": "Sin derechos de administrador, los procesos de otros usuarios ocultan sus archivos de programa y su memoria proporcional, así que algunas filas muestran menos detalle",
+      "elevated": "Analizado con derechos de administrador; todos los procesos se muestran completos"
     },
     "columns": {
       "program": "Programa",
@@ -4945,6 +4946,13 @@
       "zygote": "lanzador de renderizadores",
       "crashHandler": "informe de fallos",
       "other": "proceso auxiliar"
+    },
+    "scanElevated": "Analizar con derechos de administrador",
+    "rescanElevated": "Volver a analizar con derechos de administrador",
+    "elevation": {
+      "explanation": "Los derechos de administrador permiten leer el archivo del programa, la memoria y la carpeta de trabajo de los procesos de root y de otros usuarios. El escritorio te pide la contraseña; el análisis solo lee",
+      "denied": "La autorización de administrador falló, así que no se analizó nada",
+      "unavailable": "Los derechos de administrador necesitan pkexec, del paquete polkit, que no está instalado"
     }
   }
 }

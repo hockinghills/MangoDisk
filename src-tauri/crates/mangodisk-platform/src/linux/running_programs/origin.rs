@@ -15,7 +15,7 @@ use super::{
         GitDateSource,
     },
     packages::PackageOwners,
-    proc_reader::{environment_value, read_text, RawProcess},
+    proc_reader::{read_text, RawProcess},
     python_packages::{environment_root, user_sites, PythonDistribution, PythonPackages},
     run_tool,
     target::ResolvedTarget,
@@ -491,7 +491,7 @@ impl OriginClassifier {
         if let Some(runner) = runner {
             facts.push(PlatformOriginFact::LaunchedThroughRunner(runner.to_owned()));
         }
-        if let Some(script) = environment_value(process.pid, "npm_lifecycle_script") {
+        if let Some(script) = process.environment.get("npm_lifecycle_script") {
             facts.push(PlatformOriginFact::RunsScript(
                 script.chars().take(SCRIPT_TEXT_LIMIT).collect(),
             ));

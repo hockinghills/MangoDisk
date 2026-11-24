@@ -8,7 +8,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::{
     file_facts::{canonical, find_upwards, is_system_path},
-    proc_reader::{environment_value, RawProcess},
+    proc_reader::RawProcess,
 };
 use crate::{PlatformInterpreterFamily, PlatformProgramTarget};
 
@@ -299,7 +299,11 @@ pub(super) fn runner_name(path: &Path) -> Option<String> {
 }
 
 fn project_dir(process: &RawProcess, home: Option<&Path>) -> Option<PathBuf> {
-    if let Some(manifest) = environment_value(process.pid, "npm_package_json").map(PathBuf::from) {
+    if let Some(manifest) = process
+        .environment
+        .get("npm_package_json")
+        .map(PathBuf::from)
+    {
         if manifest.exists() {
             return manifest.parent().map(Path::to_path_buf);
         }
@@ -472,7 +476,7 @@ fn title_command(
     executable: Option<&Path>,
     home: Option<&Path>,
 ) -> Option<PathBuf> {
-    if let Some(launched) = environment_value(process.pid, "_").map(PathBuf::from) {
+    if let Some(launched) = process.environment.get("_").map(PathBuf::from) {
         if file_name(&launched) == title && launched.exists() {
             return Some(canonical(&launched));
         }

@@ -12,6 +12,8 @@ pub struct RunningProgramsSnapshot {
     pub elapsed_ms: u64,
     /// Without elevation, other users' processes hide their program files and memory details.
     pub elevated: bool,
+    /// Administrator rights were asked for but this system cannot grant them (no pkexec).
+    pub administrator_rights_unavailable: bool,
     pub memory: RunningProgramsMemory,
     pub programs: Vec<RunningProgram>,
     pub summary: RunningProgramsSummary,

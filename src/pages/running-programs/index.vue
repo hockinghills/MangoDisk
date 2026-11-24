@@ -77,6 +77,10 @@ function updateSort(value: unknown) {
 <template>
   <MdPageShell content-mode="workspace" :title="t('runningPrograms.title')">
     <template v-if="snapshot && !store.scanning" #actions>
+      <Button v-if="!snapshot.elevated" variant="outline" type="button" @click="store.scan(true)">
+        <MdIcon :name="ICON_NAMES.shield" :size="16" />
+        {{ t('runningPrograms.rescanElevated') }}
+      </Button>
       <Button variant="outline" type="button" @click="store.scan()">
         <MdIcon :name="ICON_NAMES.refresh" :size="16" />
         {{ t('runningPrograms.rescan') }}
@@ -122,7 +126,9 @@ function updateSort(value: unknown) {
             </span>
           </template>
         </MdResultSummary>
-        <p v-if="!snapshot.elevated" class="summary-note">{{ t('runningPrograms.summary.notElevated') }}</p>
+        <p class="summary-note">
+          {{ snapshot.elevated ? t('runningPrograms.summary.elevated') : t('runningPrograms.summary.notElevated') }}
+        </p>
       </template>
 
       <template v-if="snapshot" #header>
@@ -153,16 +159,27 @@ function updateSort(value: unknown) {
         </MdResultFilterToolbar>
       </template>
 
+      <p v-if="store.elevationProblem" class="elevation-problem" role="status">
+        {{ t(`runningPrograms.elevation.${store.elevationProblem}`) }}
+      </p>
+
       <MdEmptyState
         v-if="!snapshot"
         :icon-name="ICON_NAMES.process"
         :title="t('runningPrograms.emptyTitle')"
         :description="t('runningPrograms.emptyDescription')"
       >
-        <Button size="lg" type="button" @click="store.scan()">
-          <MdIcon :name="ICON_NAMES.scan" :size="17" />
-          {{ t('runningPrograms.scan') }}
-        </Button>
+        <div class="empty-actions">
+          <Button size="lg" type="button" @click="store.scan(false)">
+            <MdIcon :name="ICON_NAMES.scan" :size="17" />
+            {{ t('runningPrograms.scan') }}
+          </Button>
+          <Button size="lg" variant="outline" type="button" @click="store.scan(true)">
+            <MdIcon :name="ICON_NAMES.shield" :size="17" />
+            {{ t('runningPrograms.scanElevated') }}
+          </Button>
+        </div>
+        <p class="summary-note">{{ t('runningPrograms.elevation.explanation') }}</p>
       </MdEmptyState>
 
       <MdEmptyState
@@ -207,6 +224,18 @@ function updateSort(value: unknown) {
 
 .summary-note {
   padding: 0 16px 8px;
+}
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.elevation-problem {
+  margin: 8px 16px 0;
+  @apply text-sm text-destructive-text;
 }
 
 /* Matches the row grid in md-running-program-row.vue. */

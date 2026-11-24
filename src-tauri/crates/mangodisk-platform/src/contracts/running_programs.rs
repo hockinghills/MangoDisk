@@ -25,6 +25,9 @@ pub trait RunningProgramsPlatform: Send + Sync {
 pub struct PlatformRunningProgramsRequest {
     /// Time between the two CPU samples used for current CPU use.
     pub cpu_sample_ms: u64,
+    /// Ask the desktop for administrator rights (polkit on Linux) to read other users'
+    /// processes in full. Dismissing the request cancels the capture.
+    pub use_administrator_rights: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,6 +35,9 @@ pub struct PlatformRunningProgramsSnapshot {
     pub captured_at_ms: u64,
     /// Whether the capture could read other users' processes in full.
     pub elevated: bool,
+    /// Administrator rights were requested but the system has no way to ask for them
+    /// (no pkexec), so the capture ran without them.
+    pub administrator_rights_unavailable: bool,
     /// Home folder of the user the capture runs as; programs found under it were added by that user.
     pub home_directory: Option<PathBuf>,
     pub memory: PlatformMemoryTotals,

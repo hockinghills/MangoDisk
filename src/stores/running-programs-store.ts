@@ -14,8 +14,14 @@ import { filterPrograms, sortPrograms } from '@/lib/utils/running-programs/runni
 
 import { useAppStore } from './app-store';
 
+/** Why the last administrator-rights scan did not run, rendered as a page notice. */
+export type RunningProgramsElevationProblem = 'denied' | 'unavailable';
+
 interface RunningProgramsState {
   snapshot: RunningProgramsSnapshot | null;
+  /** Rescans repeat the last choice so an elevated view stays elevated. */
+  useAdministratorRights: boolean;
+  elevationProblem: RunningProgramsElevationProblem | null;
   scanning: boolean;
   cancelling: boolean;
   filter: RunningProgramsFilter;
@@ -27,6 +33,8 @@ interface RunningProgramsState {
 export const useRunningProgramsStore = defineStore('running-programs', {
   state: (): RunningProgramsState => ({
     snapshot: null,
+    useAdministratorRights: false,
+    elevationProblem: null,
     scanning: false,
     cancelling: false,
     filter: 'all',
@@ -41,14 +49,19 @@ export const useRunningProgramsStore = defineStore('running-programs', {
     },
   },
   actions: {
-    async scan() {
+    async scan(useAdministratorRights?: boolean) {
       if (this.scanning) return;
       const appStore = useAppStore();
+      const elevate = useAdministratorRights ?? this.useAdministratorRights;
       this.scanning = true;
       this.cancelling = false;
+      this.elevationProblem = null;
       appStore.clearError();
       try {
-        const snapshot = await RunningProgramsService.scan();
+        const snapshot = await RunningProgramsService.scan(elevate);
+        // Without a way to ask for rights, later rescans should not keep trying.
+        this.useAdministratorRights = elevate && !snapshot.administratorRightsUnavailable;
+        if (snapshot.administratorRightsUnavailable) this.elevationProblem = 'unavailable';
         if (snapshot.schemaVersion !== RUNNING_PROGRAMS_SCHEMA_VERSION) {
           LoggerService.warn(LOG_DOMAINS.runningPrograms, 'schema_mismatch', {
             expected: RUNNING_PROGRAMS_SCHEMA_VERSION,
@@ -60,7 +73,9 @@ export const useRunningProgramsStore = defineStore('running-programs', {
           this.expandedId = null;
         }
       } catch (error) {
-        if (parseCommandError(error)?.code !== 'operationCancelled') appStore.reportError(error);
+        const code = parseCommandError(error)?.code;
+        if (elevate && code === 'permissionDenied') this.elevationProblem = 'denied';
+        else if (code !== 'operationCancelled') appStore.reportError(error);
       } finally {
         this.scanning = false;
         this.cancelling = false;

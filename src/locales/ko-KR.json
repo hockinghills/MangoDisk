@@ -4760,7 +4760,8 @@
       "swapUsed": "스왑 {total} 중 {used}",
       "compressedSwap": "압축 스왑이 RAM {ram}에 {stored} 보관",
       "captured": "{date}에 수집",
-      "notElevated": "관리자 권한이 없으면 다른 사용자의 프로세스는 프로그램 파일과 비례 메모리를 숨기므로 일부 행은 정보가 적습니다"
+      "notElevated": "관리자 권한이 없으면 다른 사용자의 프로세스는 프로그램 파일과 비례 메모리를 숨기므로 일부 행은 정보가 적습니다",
+      "elevated": "관리자 권한으로 검사하여 모든 프로세스가 완전히 표시됩니다"
     },
     "columns": {
       "program": "프로그램",
@@ -4945,6 +4946,13 @@
       "zygote": "렌더러 실행기",
       "crashHandler": "충돌 보고 도구",
       "other": "보조 프로세스"
+    },
+    "scanElevated": "관리자 권한으로 검사",
+    "rescanElevated": "관리자 권한으로 다시 검사",
+    "elevation": {
+      "explanation": "관리자 권한이 있으면 root와 다른 사용자 프로세스의 프로그램 파일, 메모리, 작업 폴더를 읽을 수 있습니다. 데스크톱이 암호를 묻으며 검사는 읽기만 합니다",
+      "denied": "관리자 인증에 실패해 검사하지 않았습니다",
+      "unavailable": "관리자 권한에는 polkit 패키지의 pkexec가 필요하지만 설치되어 있지 않습니다"
     }
   }
 }
