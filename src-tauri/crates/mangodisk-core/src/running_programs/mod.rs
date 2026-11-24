@@ -11,8 +11,8 @@ mod service;
 pub use models::{
     ProgramContainer, ProgramContainerEngine, ProgramDateSource, ProgramLaunch, ProgramLaunchKind,
     ProgramOrigin, ProgramOriginFact, ProgramOriginKind, ProgramPackageManager,
-    ProgramPackageRequest, ProgramProcess, ProgramSafetyClass, ProgramUnitFileOrigin,
-    ProgramUnitScope, RunningProgram, RunningProgramsMemory, RunningProgramsSnapshot,
-    RunningProgramsSummary, RUNNING_PROGRAMS_SCHEMA_VERSION,
+    ProgramPackageRequest, ProgramProcess, ProgramProcessRole, ProgramSafetyClass,
+    ProgramUnitFileOrigin, ProgramUnitScope, RunningProgram, RunningProgramsMemory,
+    RunningProgramsSnapshot, RunningProgramsSummary, RUNNING_PROGRAMS_SCHEMA_VERSION,
 };
 pub use service::RunningProgramsService;

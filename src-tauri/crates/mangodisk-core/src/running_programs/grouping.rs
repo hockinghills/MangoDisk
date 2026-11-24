@@ -23,8 +23,8 @@ use super::{
     },
     models::{
         ProgramDateSource, ProgramLaunch, ProgramLaunchKind, ProgramOrigin, ProgramOriginFact,
-        ProgramOriginKind, ProgramPackageRequest, ProgramProcess, ProgramSafetyClass,
-        RunningProgram,
+        ProgramOriginKind, ProgramPackageRequest, ProgramProcess, ProgramProcessRole,
+        ProgramSafetyClass, RunningProgram,
     },
     redaction::redact_command_line,
 };
@@ -639,6 +639,39 @@ pub(super) fn group_programs(input: GroupingInput) -> Vec<RunningProgram> {
     programs
 }
 
+fn argument_value<'a>(argv: &'a [String], name: &str) -> Option<&'a str> {
+    let prefix = format!("--{name}=");
+    argv.iter().find_map(|arg| arg.strip_prefix(&prefix))
+}
+
+/// The role of each process in a Chromium-style app, or `None` when the program is not one.
+fn process_role(
+    argv: &[String],
+    program_is_multiprocess: bool,
+) -> (Option<ProgramProcessRole>, Option<String>) {
+    let Some(kind) = argument_value(argv, "type") else {
+        return (
+            program_is_multiprocess.then_some(ProgramProcessRole::Main),
+            None,
+        );
+    };
+    let has_flag = |flag: &str| argv.iter().any(|arg| arg == flag);
+    let role = match kind {
+        "renderer" if has_flag("--extension-process") => ProgramProcessRole::Extension,
+        "renderer" => ProgramProcessRole::Renderer,
+        "gpu-process" => ProgramProcessRole::Gpu,
+        "utility" => ProgramProcessRole::Utility,
+        "zygote" => ProgramProcessRole::Zygote,
+        "crashpad-handler" | "crash-handler" => ProgramProcessRole::CrashHandler,
+        _ => ProgramProcessRole::Other,
+    };
+    let detail = (role == ProgramProcessRole::Utility)
+        .then(|| argument_value(argv, "utility-sub-type"))
+        .flatten()
+        .map(|subtype| subtype.rsplit('.').next().unwrap_or(subtype).to_owned());
+    (Some(role), detail)
+}
+
 fn build_program(id: String, members: Vec<Entry>, now_ms: u64) -> RunningProgram {
     let origin = members[0].origin.clone();
     let mut launches: Vec<ProgramLaunch> = Vec::new();
@@ -721,26 +754,34 @@ fn build_program(id: String, members: Vec<Entry>, now_ms: u64) -> RunningProgram
         && cpu_percent_now < QUIET_CURRENT_CPU;
     let executable_replaced = members.iter().any(|entry| entry.record.executable_replaced);
 
+    let multiprocess = members
+        .iter()
+        .any(|entry| argument_value(&entry.record.command_line, "type").is_some());
     let mut processes: Vec<ProgramProcess> = members
         .into_iter()
-        .map(|entry| ProgramProcess {
-            pid: entry.record.pid,
-            parent_pid: entry.record.parent_pid,
-            uid: entry.record.uid,
-            command_line: redact_command_line(&entry.record.command_line),
-            executable_path: entry.record.executable_path.as_deref().map(path_text),
-            working_directory: entry.record.working_directory.as_deref().map(path_text),
-            started_at_ms: entry.record.started_at_ms,
-            cpu_percent_now: entry.record.cpu_percent_now,
-            memory_kb: entry
-                .record
-                .proportional_kb
-                .unwrap_or(entry.record.resident_kb),
-            memory_is_proportional: entry.record.proportional_kb.is_some(),
-            swap_kb: entry.record.swap_kb,
-            folded_from: entry.folded_from,
-            inline_code: entry.record.target.inline,
-            name: entry.record.name,
+        .map(|entry| {
+            let (role, role_detail) = process_role(&entry.record.command_line, multiprocess);
+            ProgramProcess {
+                role,
+                role_detail,
+                pid: entry.record.pid,
+                parent_pid: entry.record.parent_pid,
+                uid: entry.record.uid,
+                command_line: redact_command_line(&entry.record.command_line),
+                executable_path: entry.record.executable_path.as_deref().map(path_text),
+                working_directory: entry.record.working_directory.as_deref().map(path_text),
+                started_at_ms: entry.record.started_at_ms,
+                cpu_percent_now: entry.record.cpu_percent_now,
+                memory_kb: entry
+                    .record
+                    .proportional_kb
+                    .unwrap_or(entry.record.resident_kb),
+                memory_is_proportional: entry.record.proportional_kb.is_some(),
+                swap_kb: entry.record.swap_kb,
+                folded_from: entry.folded_from,
+                inline_code: entry.record.target.inline,
+                name: entry.record.name,
+            }
         })
         .collect();
     processes.sort_by(|left, right| {

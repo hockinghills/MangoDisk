@@ -4923,7 +4923,8 @@
       "notes": "Notes",
       "executableReplaced": "Its program file was replaced or deleted after it started; restarting it picks up the update",
       "memoryNote": "Memory",
-      "memoryResidentNote": "Shows resident memory, which counts shared libraries once per process; proportional memory needs administrator rights for other users' processes"
+      "memoryResidentNote": "Shows resident memory, which counts shared libraries once per process; proportional memory needs administrator rights for other users' processes",
+      "rendererHint": "The app does not say which tab or window a renderer serves. In Chrome or Chromium, press Shift+Esc to open its Task manager, which lists each tab with its process ID; match the ID to the PID column here"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "counted here; on its own: {name}",
       "inlineCode": "runs code passed on its command line",
       "inlineCodeIn": "runs code passed on its command line, in {folder}"
+    },
+    "processCount": "{count} processes",
+    "processRoles": {
+      "main": "main process (owns the windows)",
+      "renderer": "page renderer (tabs, frames, app pages)",
+      "extension": "extension",
+      "gpu": "GPU process",
+      "utility": "utility service",
+      "utilityNamed": "service: {service}",
+      "zygote": "renderer launcher",
+      "crashHandler": "crash reporter",
+      "other": "helper process"
     }
   }
 }

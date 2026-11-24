@@ -136,6 +136,9 @@ export interface ProgramLaunch {
   spawnedByEditor: boolean;
 }
 
+export type ProgramProcessRole =
+  'main' | 'renderer' | 'extension' | 'gpu' | 'utility' | 'zygote' | 'crashHandler' | 'other';
+
 export interface ProgramProcess {
   pid: number;
   parentPid: number;
@@ -151,6 +154,8 @@ export interface ProgramProcess {
   swapKb: number;
   foldedFrom: string | null;
   inlineCode: boolean;
+  role: ProgramProcessRole | null;
+  roleDetail: string | null;
 }
 
 export interface RunningProgram {

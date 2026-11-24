@@ -4923,7 +4923,8 @@
       "notes": "备注",
       "executableReplaced": "其程序文件在启动后被替换或删除；重新启动即可使用更新",
       "memoryNote": "内存",
-      "memoryResidentNote": "显示常驻内存，共享库会在每个进程中重复计算；其他用户进程的按比例内存需要管理员权限"
+      "memoryResidentNote": "显示常驻内存，共享库会在每个进程中重复计算；其他用户进程的按比例内存需要管理员权限",
+      "rendererHint": "应用不会说明渲染进程对应哪个标签页或窗口。在 Chrome 或 Chromium 中按 Shift+Esc 打开任务管理器，它会列出每个标签页及其进程 ID；将该 ID 与此处的 PID 列对照"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "计入此处；单独时为：{name}",
       "inlineCode": "运行通过命令行传入的代码",
       "inlineCodeIn": "在 {folder} 中运行通过命令行传入的代码"
+    },
+    "processCount": "{count} 个进程",
+    "processRoles": {
+      "main": "主进程（拥有窗口）",
+      "renderer": "页面渲染进程（标签页、框架、应用页面）",
+      "extension": "扩展程序",
+      "gpu": "GPU 进程",
+      "utility": "实用服务",
+      "utilityNamed": "服务：{service}",
+      "zygote": "渲染进程启动器",
+      "crashHandler": "崩溃报告程序",
+      "other": "辅助进程"
     }
   }
 }

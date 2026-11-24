@@ -101,9 +101,10 @@ pub use reporting::{
 pub use running_programs::{
     ProgramContainer, ProgramContainerEngine, ProgramDateSource, ProgramLaunch, ProgramLaunchKind,
     ProgramOrigin, ProgramOriginFact, ProgramOriginKind, ProgramPackageManager,
-    ProgramPackageRequest, ProgramProcess, ProgramSafetyClass, ProgramUnitFileOrigin,
-    ProgramUnitScope, RunningProgram, RunningProgramsMemory, RunningProgramsService,
-    RunningProgramsSnapshot, RunningProgramsSummary, RUNNING_PROGRAMS_SCHEMA_VERSION,
+    ProgramPackageRequest, ProgramProcess, ProgramProcessRole, ProgramSafetyClass,
+    ProgramUnitFileOrigin, ProgramUnitScope, RunningProgram, RunningProgramsMemory,
+    RunningProgramsService, RunningProgramsSnapshot, RunningProgramsSummary,
+    RUNNING_PROGRAMS_SCHEMA_VERSION,
 };
 pub use shared::{
     configure_application_paths, ApplicationPaths, ApplicationRestartGuard, CoreError,

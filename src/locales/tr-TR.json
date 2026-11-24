@@ -4923,7 +4923,8 @@
       "notes": "Notlar",
       "executableReplaced": "Program dosyası başladıktan sonra değiştirildi veya silindi; yeniden başlatmak güncellemeyi uygular",
       "memoryNote": "Bellek",
-      "memoryResidentNote": "Yerleşik bellek gösteriliyor; paylaşılan kitaplıklar her işlemde sayılır. Diğer kullanıcıların işlemlerinde orantılı bellek yönetici hakları gerektirir"
+      "memoryResidentNote": "Yerleşik bellek gösteriliyor; paylaşılan kitaplıklar her işlemde sayılır. Diğer kullanıcıların işlemlerinde orantılı bellek yönetici hakları gerektirir",
+      "rendererHint": "Uygulama, bir oluşturucunun hangi sekmeye veya pencereye hizmet ettiğini söylemez. Chrome veya Chromium'da Shift+Esc ile Görev yöneticisini açın; her sekme işlem kimliğiyle listelenir. Bu kimliği buradaki PID sütunuyla eşleştirin"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "burada sayılır; tek başına: {name}",
       "inlineCode": "komut satırıyla verilen kodu çalıştırıyor",
       "inlineCodeIn": "{folder} içinde komut satırıyla verilen kodu çalıştırıyor"
+    },
+    "processCount": "{count} işlem",
+    "processRoles": {
+      "main": "ana işlem (pencerelerin sahibi)",
+      "renderer": "sayfa oluşturucu (sekmeler, çerçeveler, uygulama sayfaları)",
+      "extension": "uzantı",
+      "gpu": "GPU işlemi",
+      "utility": "yardımcı hizmet",
+      "utilityNamed": "hizmet: {service}",
+      "zygote": "oluşturucu başlatıcı",
+      "crashHandler": "çökme raporlayıcı",
+      "other": "yardımcı işlem"
     }
   }
 }

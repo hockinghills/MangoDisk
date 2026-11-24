@@ -4923,7 +4923,8 @@
       "notes": "Notas",
       "executableReplaced": "Su archivo de programa se reemplazó o borró después de iniciarse; reiniciarlo aplica la actualización",
       "memoryNote": "Memoria",
-      "memoryResidentNote": "Muestra la memoria residente, que cuenta las bibliotecas compartidas en cada proceso; la memoria proporcional de procesos de otros usuarios requiere derechos de administrador"
+      "memoryResidentNote": "Muestra la memoria residente, que cuenta las bibliotecas compartidas en cada proceso; la memoria proporcional de procesos de otros usuarios requiere derechos de administrador",
+      "rendererHint": "La app no indica a qué pestaña o ventana sirve un renderizador. En Chrome o Chromium, pulsa Mayús+Esc para abrir el Administrador de tareas, que muestra cada pestaña con su ID de proceso; compáralo con la columna PID de aquí"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "contado aquí; por sí solo: {name}",
       "inlineCode": "ejecuta código pasado en la línea de comandos",
       "inlineCodeIn": "ejecuta código pasado en la línea de comandos, en {folder}"
+    },
+    "processCount": "{count} procesos",
+    "processRoles": {
+      "main": "proceso principal (dueño de las ventanas)",
+      "renderer": "renderizador de páginas (pestañas, marcos, páginas de la app)",
+      "extension": "extensión",
+      "gpu": "proceso de GPU",
+      "utility": "servicio auxiliar",
+      "utilityNamed": "servicio: {service}",
+      "zygote": "lanzador de renderizadores",
+      "crashHandler": "informe de fallos",
+      "other": "proceso auxiliar"
     }
   }
 }

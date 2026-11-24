@@ -273,6 +273,27 @@ pub struct ProgramLaunch {
     pub spawned_by_editor: bool,
 }
 
+/// What a process does inside a multi-process app (Chromium, Chrome, Electron apps), from its
+/// `--type=` argument. These apps do not put the page or window a process serves on its command
+/// line, so the role is as specific as the system can tell from outside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProgramProcessRole {
+    /// The main process that owns the windows.
+    Main,
+    /// Runs web content: tabs, frames and app pages.
+    Renderer,
+    /// Runs an extension's background page.
+    Extension,
+    Gpu,
+    /// A service such as networking, storage or audio; the detail names it.
+    Utility,
+    /// Pre-forks renderers for faster tab start.
+    Zygote,
+    CrashHandler,
+    Other,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgramProcess {
@@ -292,6 +313,9 @@ pub struct ProgramProcess {
     pub folded_from: Option<String>,
     /// Runs code passed on its command line (`python -c`, `sh -c`).
     pub inline_code: bool,
+    pub role: Option<ProgramProcessRole>,
+    /// The service a utility process runs, such as `NetworkService`.
+    pub role_detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

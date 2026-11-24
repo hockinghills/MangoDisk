@@ -213,6 +213,16 @@ const dynamicKeyGroups = {
   ],
   'runningPrograms.packageRequests': ['requested', 'bulkInstall', 'dependency', 'cameWithSystem'],
   'runningPrograms.containerEngines': ['docker', 'podman', 'lxc', 'incus', 'kubernetes'],
+  'runningPrograms.processRoles': [
+    'main',
+    'renderer',
+    'extension',
+    'gpu',
+    'utility',
+    'zygote',
+    'crashHandler',
+    'other',
+  ],
   'runningPrograms.launch': [
     'autostart',
     'appLaunched',

@@ -4923,7 +4923,8 @@
       "notes": "Remarques",
       "executableReplaced": "Son fichier programme a été remplacé ou supprimé après son lancement ; le redémarrer applique la mise à jour",
       "memoryNote": "Mémoire",
-      "memoryResidentNote": "Affiche la mémoire résidente, qui compte les bibliothèques partagées dans chaque processus ; la mémoire proportionnelle des processus d'autres utilisateurs nécessite des droits administrateur"
+      "memoryResidentNote": "Affiche la mémoire résidente, qui compte les bibliothèques partagées dans chaque processus ; la mémoire proportionnelle des processus d'autres utilisateurs nécessite des droits administrateur",
+      "rendererHint": "L'application n'indique pas quel onglet ou quelle fenêtre sert un processus de rendu. Dans Chrome ou Chromium, appuyez sur Maj+Échap pour ouvrir le Gestionnaire de tâches, qui liste chaque onglet avec son ID de processus ; comparez-le à la colonne PID ici"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "compté ici ; seul : {name}",
       "inlineCode": "exécute du code passé en ligne de commande",
       "inlineCodeIn": "exécute du code passé en ligne de commande, dans {folder}"
+    },
+    "processCount": "{count} processus",
+    "processRoles": {
+      "main": "processus principal (possède les fenêtres)",
+      "renderer": "rendu des pages (onglets, cadres, pages d'application)",
+      "extension": "extension",
+      "gpu": "processus GPU",
+      "utility": "service utilitaire",
+      "utilityNamed": "service : {service}",
+      "zygote": "lanceur de processus de rendu",
+      "crashHandler": "rapport de plantage",
+      "other": "processus auxiliaire"
     }
   }
 }

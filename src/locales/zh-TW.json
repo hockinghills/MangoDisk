@@ -4923,7 +4923,8 @@
       "notes": "備註",
       "executableReplaced": "其程式檔案在啟動後被取代或刪除；重新啟動即可使用更新",
       "memoryNote": "記憶體",
-      "memoryResidentNote": "顯示常駐記憶體，共用程式庫會在每個處理程序中重複計算；其他使用者處理程序的按比例記憶體需要系統管理員權限"
+      "memoryResidentNote": "顯示常駐記憶體，共用程式庫會在每個處理程序中重複計算；其他使用者處理程序的按比例記憶體需要系統管理員權限",
+      "rendererHint": "應用程式不會說明轉譯處理程序對應哪個分頁或視窗。在 Chrome 或 Chromium 中按 Shift+Esc 開啟工作管理員，它會列出每個分頁及其處理程序 ID；將該 ID 與此處的 PID 欄對照"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "計入此處；單獨時為：{name}",
       "inlineCode": "執行透過命令列傳入的程式碼",
       "inlineCodeIn": "在 {folder} 中執行透過命令列傳入的程式碼"
+    },
+    "processCount": "{count} 個處理程序",
+    "processRoles": {
+      "main": "主處理程序（擁有視窗）",
+      "renderer": "頁面轉譯處理程序（分頁、框架、應用程式頁面）",
+      "extension": "擴充功能",
+      "gpu": "GPU 處理程序",
+      "utility": "公用服務",
+      "utilityNamed": "服務：{service}",
+      "zygote": "轉譯處理程序啟動器",
+      "crashHandler": "當機回報程式",
+      "other": "輔助處理程序"
     }
   }
 }

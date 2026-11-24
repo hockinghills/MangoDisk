@@ -4923,7 +4923,8 @@
       "notes": "メモ",
       "executableReplaced": "起動後にプログラムファイルが置き換えまたは削除されました。再起動すると更新が反映されます",
       "memoryNote": "メモリ",
-      "memoryResidentNote": "常駐メモリを表示しています。共有ライブラリはプロセスごとに数えられます。他ユーザーのプロセスの比例メモリには管理者権限が必要です"
+      "memoryResidentNote": "常駐メモリを表示しています。共有ライブラリはプロセスごとに数えられます。他ユーザーのプロセスの比例メモリには管理者権限が必要です",
+      "rendererHint": "アプリは、レンダラーがどのタブやウィンドウを担当しているかを示しません。Chrome または Chromium で Shift+Esc を押すとタスクマネージャーが開き、各タブとプロセス ID が表示されます。その ID をここの PID 列と照らし合わせてください"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "ここに計上。単独では {name}",
       "inlineCode": "コマンドラインで渡されたコードを実行",
       "inlineCodeIn": "{folder} でコマンドラインで渡されたコードを実行"
+    },
+    "processCount": "{count} 個のプロセス",
+    "processRoles": {
+      "main": "メインプロセス（ウィンドウを所有）",
+      "renderer": "ページのレンダラー（タブ、フレーム、アプリページ）",
+      "extension": "拡張機能",
+      "gpu": "GPU プロセス",
+      "utility": "ユーティリティサービス",
+      "utilityNamed": "サービス: {service}",
+      "zygote": "レンダラー起動用プロセス",
+      "crashHandler": "クラッシュレポーター",
+      "other": "補助プロセス"
     }
   }
 }

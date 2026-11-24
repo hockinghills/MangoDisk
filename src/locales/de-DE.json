@@ -4923,7 +4923,8 @@
       "notes": "Hinweise",
       "executableReplaced": "Die Programmdatei wurde nach dem Start ersetzt oder gelöscht; ein Neustart übernimmt das Update",
       "memoryNote": "Speicher",
-      "memoryResidentNote": "Zeigt residenten Speicher, der gemeinsame Bibliotheken in jedem Prozess zählt; proportionaler Speicher fremder Prozesse erfordert Administratorrechte"
+      "memoryResidentNote": "Zeigt residenten Speicher, der gemeinsame Bibliotheken in jedem Prozess zählt; proportionaler Speicher fremder Prozesse erfordert Administratorrechte",
+      "rendererHint": "Die App verrät nicht, welchen Tab oder welches Fenster ein Darstellungsprozess bedient. Drücken Sie in Chrome oder Chromium Umschalt+Esc, um den Task-Manager zu öffnen; er listet jeden Tab mit seiner Prozess-ID. Gleichen Sie die ID mit der PID-Spalte hier ab"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "hier mitgezählt; für sich: {name}",
       "inlineCode": "führt auf der Befehlszeile übergebenen Code aus",
       "inlineCodeIn": "führt auf der Befehlszeile übergebenen Code aus, in {folder}"
+    },
+    "processCount": "{count} Prozesse",
+    "processRoles": {
+      "main": "Hauptprozess (besitzt die Fenster)",
+      "renderer": "Seitendarstellung (Tabs, Frames, App-Seiten)",
+      "extension": "Erweiterung",
+      "gpu": "GPU-Prozess",
+      "utility": "Hilfsdienst",
+      "utilityNamed": "Dienst: {service}",
+      "zygote": "Starter für Darstellungsprozesse",
+      "crashHandler": "Absturzmelder",
+      "other": "Hilfsprozess"
     }
   }
 }

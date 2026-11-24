@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use mangodisk_platform::{
     PlatformProcessRecord, PlatformProgramOrigin, PlatformProgramOriginKind, PlatformProgramTarget,
@@ -309,4 +309,91 @@ fn programs_are_sorted_by_memory_and_swap() {
         Vec::new(),
     );
     assert_eq!(programs[0].name, "big");
+}
+
+#[test]
+fn chromium_style_processes_are_labelled_by_role() {
+    let scope = format!("{USER_APPS}/app-google\\x2dchrome-1234.scope");
+    let mut chrome = PlatformProgramOrigin::new(
+        PlatformProgramOriginKind::SystemPackage,
+        "google-chrome-stable",
+    );
+    chrome.location = Some("google-chrome-stable".into());
+    let mut main = process(
+        80,
+        1,
+        "chrome",
+        "/opt/google/chrome/chrome",
+        &scope,
+        chrome.clone(),
+    );
+    main.command_line = vec!["/opt/google/chrome/chrome".into()];
+    let mut renderer = process(
+        81,
+        80,
+        "chrome",
+        "/opt/google/chrome/chrome",
+        &scope,
+        chrome.clone(),
+    );
+    renderer.command_line = vec![
+        "/opt/google/chrome/chrome".into(),
+        "--type=renderer".into(),
+        "--renderer-client-id=7".into(),
+    ];
+    let mut extension = process(
+        82,
+        80,
+        "chrome",
+        "/opt/google/chrome/chrome",
+        &scope,
+        chrome.clone(),
+    );
+    extension.command_line = vec![
+        "/opt/google/chrome/chrome".into(),
+        "--type=renderer".into(),
+        "--extension-process".into(),
+    ];
+    let mut network = process(
+        83,
+        80,
+        "chrome",
+        "/opt/google/chrome/chrome",
+        &scope,
+        chrome,
+    );
+    network.command_line = vec![
+        "/opt/google/chrome/chrome".into(),
+        "--type=utility".into(),
+        "--utility-sub-type=network.mojom.NetworkService".into(),
+    ];
+    let programs = group(vec![main, renderer, extension, network], Vec::new());
+    let roles: HashMap<u32, (Option<ProgramProcessRole>, Option<String>)> = programs[0]
+        .processes
+        .iter()
+        .map(|process| (process.pid, (process.role, process.role_detail.clone())))
+        .collect();
+    assert_eq!(roles[&80], (Some(ProgramProcessRole::Main), None));
+    assert_eq!(roles[&81], (Some(ProgramProcessRole::Renderer), None));
+    assert_eq!(roles[&82], (Some(ProgramProcessRole::Extension), None));
+    assert_eq!(
+        roles[&83],
+        (
+            Some(ProgramProcessRole::Utility),
+            Some("NetworkService".into())
+        )
+    );
+    // Ordinary programs carry no role.
+    let plain = group(
+        vec![process(
+            90,
+            1,
+            "htop",
+            "/usr/bin/htop",
+            "/system.slice/x.service",
+            package("htop"),
+        )],
+        Vec::new(),
+    );
+    assert_eq!(plain[0].processes[0].role, None);
 }

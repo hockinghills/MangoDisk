@@ -60,6 +60,8 @@ const program: RunningProgram = {
       swapKb: 0,
       foldedFrom: null,
       inlineCode: false,
+      role: null,
+      roleDetail: null,
     },
   ],
   memoryKb: 40_960,

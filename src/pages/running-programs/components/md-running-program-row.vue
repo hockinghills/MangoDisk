@@ -113,6 +113,9 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
               program.packageName ? t('runningPrograms.packageOrigin', { package: program.packageName }) : originLabel
             }}
             <template v-if="origin.version"> · {{ origin.version }}</template>
+            <template v-if="program.processes.length > 1">
+              · {{ t('runningPrograms.processCount', { count: program.processes.length }) }}
+            </template>
           </small>
         </span>
         <span class="program-launch">{{ launchSummary }}</span>
@@ -209,6 +212,9 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
         </template>
       </dl>
 
+      <p v-if="program.processes.some(process => process.role === 'renderer')" class="process-hint">
+        {{ t('runningPrograms.detail.rendererHint') }}
+      </p>
       <table class="process-table">
         <thead>
           <tr>
@@ -225,6 +231,13 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
             <td>{{ process.pid }}</td>
             <td>
               {{ process.name }}
+              <small v-if="process.role" class="process-note">
+                {{
+                  process.roleDetail
+                    ? t('runningPrograms.processRoles.utilityNamed', { service: process.roleDetail })
+                    : t(`runningPrograms.processRoles.${process.role}`)
+                }}
+              </small>
               <small v-if="process.foldedFrom" class="process-note">
                 {{ t('runningPrograms.processes.foldedFrom', { name: process.foldedFrom }) }}
               </small>
@@ -357,6 +370,10 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
 
 .process-note {
   display: block;
+}
+
+.process-hint {
+  @apply text-sm text-muted-foreground;
 }
 
 .command-line code {

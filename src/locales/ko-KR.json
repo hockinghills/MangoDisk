@@ -4923,7 +4923,8 @@
       "notes": "참고",
       "executableReplaced": "시작 후 프로그램 파일이 교체되거나 삭제되었습니다. 다시 시작하면 업데이트가 적용됩니다",
       "memoryNote": "메모리",
-      "memoryResidentNote": "상주 메모리를 표시하며 공유 라이브러리는 프로세스마다 계산됩니다. 다른 사용자 프로세스의 비례 메모리는 관리자 권한이 필요합니다"
+      "memoryResidentNote": "상주 메모리를 표시하며 공유 라이브러리는 프로세스마다 계산됩니다. 다른 사용자 프로세스의 비례 메모리는 관리자 권한이 필요합니다",
+      "rendererHint": "앱은 렌더러가 어느 탭이나 창을 담당하는지 알려 주지 않습니다. Chrome 또는 Chromium에서 Shift+Esc를 눌러 작업 관리자를 열면 탭마다 프로세스 ID가 표시되니, 그 ID를 여기의 PID 열과 맞춰 보세요"
     },
     "processes": {
       "pid": "PID",
@@ -4932,6 +4933,18 @@
       "foldedFrom": "여기에 포함됨. 단독으로는 {name}",
       "inlineCode": "명령줄로 전달된 코드 실행",
       "inlineCodeIn": "{folder}에서 명령줄로 전달된 코드 실행"
+    },
+    "processCount": "프로세스 {count}개",
+    "processRoles": {
+      "main": "메인 프로세스(창 소유)",
+      "renderer": "페이지 렌더러(탭, 프레임, 앱 페이지)",
+      "extension": "확장 프로그램",
+      "gpu": "GPU 프로세스",
+      "utility": "유틸리티 서비스",
+      "utilityNamed": "서비스: {service}",
+      "zygote": "렌더러 실행기",
+      "crashHandler": "충돌 보고 도구",
+      "other": "보조 프로세스"
     }
   }
 }
