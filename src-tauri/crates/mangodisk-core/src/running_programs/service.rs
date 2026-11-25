@@ -54,12 +54,17 @@ impl RunningProgramsService {
         };
         let process_count = capture.processes.len();
         let unit_count = capture.units.len();
+        let home_text = capture
+            .home_directory
+            .as_deref()
+            .map(|home| home.to_string_lossy().into_owned());
         let programs = group_programs(GroupingInput {
             processes: capture.processes,
             units: capture.units,
             home: capture.home_directory,
             now_ms: capture.captured_at_ms,
         });
+        super::triage::remember_programs(capture.captured_at_ms, home_text, &programs);
         let summary = RunningProgramsSummary {
             process_count,
             program_count: programs.len(),

@@ -18,6 +18,8 @@ serde-saphyr = { version = "2.0.0", default-features = false, features = ["deser
 reqwest = { version = "0.13.5", features = ["json"] }
 tokio = { version = "1.53.2", features = ["sync", "time", "macros", "net"] }
 tempfile = "3.27.0"
+# Bounded concurrency for decision-model requests.
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 sha2 = "0.11.0"
 hmac = "0.13.0"
 base64 = "0.23.1"

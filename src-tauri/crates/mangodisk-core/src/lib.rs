@@ -1,6 +1,7 @@
 pub mod ai;
 mod applications;
 mod cleanup;
+pub mod decisions;
 mod filesystem;
 mod history;
 pub mod http_client;
@@ -99,12 +100,12 @@ pub use reporting::{
     EngineBenchmarkComparisonService, EngineBenchmarkOptions, EngineBenchmarkService,
 };
 pub use running_programs::{
-    ProgramContainer, ProgramContainerEngine, ProgramDateSource, ProgramLaunch, ProgramLaunchKind,
-    ProgramOrigin, ProgramOriginFact, ProgramOriginKind, ProgramPackageManager,
-    ProgramPackageRequest, ProgramProcess, ProgramProcessRole, ProgramSafetyClass,
-    ProgramUnitFileOrigin, ProgramUnitScope, RunningProgram, RunningProgramsMemory,
-    RunningProgramsService, RunningProgramsSnapshot, RunningProgramsSummary,
-    RUNNING_PROGRAMS_SCHEMA_VERSION,
+    cancel_triage, triage_programs, ProgramContainer, ProgramContainerEngine, ProgramDateSource,
+    ProgramLaunch, ProgramLaunchKind, ProgramOrigin, ProgramOriginFact, ProgramOriginKind,
+    ProgramPackageManager, ProgramPackageRequest, ProgramProcess, ProgramProcessRole,
+    ProgramSafetyClass, ProgramTriage, ProgramUnitFileOrigin, ProgramUnitScope, RunningProgram,
+    RunningProgramsMemory, RunningProgramsService, RunningProgramsSnapshot, RunningProgramsSummary,
+    TriageFailure, TriageReport, TriageRole, RUNNING_PROGRAMS_SCHEMA_VERSION,
 };
 pub use shared::{
     configure_application_paths, ApplicationPaths, ApplicationRestartGuard, CoreError,

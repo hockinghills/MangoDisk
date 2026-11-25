@@ -7,6 +7,7 @@ mod launch;
 mod models;
 mod redaction;
 mod service;
+mod triage;
 
 pub use models::{
     ProgramContainer, ProgramContainerEngine, ProgramDateSource, ProgramLaunch, ProgramLaunchKind,
@@ -16,3 +17,6 @@ pub use models::{
     RunningProgramsSnapshot, RunningProgramsSummary, RUNNING_PROGRAMS_SCHEMA_VERSION,
 };
 pub use service::RunningProgramsService;
+pub use triage::{
+    cancel_triage, triage_programs, ProgramTriage, TriageFailure, TriageReport, TriageRole,
+};

@@ -2704,6 +2704,7 @@ dependencies = [
  "chrono",
  "encoding_rs",
  "fs2",
+ "futures-util",
  "hmac",
  "libc",
  "log",
