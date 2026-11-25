@@ -24,6 +24,10 @@ pub enum DecisionError {
     Busy,
     Cancelled,
     NothingToJudge,
+    /// The question set is not valid JSON or breaks the documented limits.
+    InvalidQuestions,
+    InvalidExportPath,
+    ExportFailed,
     Unauthorized,
     InsufficientCredits,
     RateLimited,

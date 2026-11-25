@@ -13,7 +13,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
     time::Instant,
 };
@@ -26,11 +26,18 @@ use super::models::{
     ProgramLaunch, ProgramLaunchKind, ProgramOriginFact, ProgramOriginKind, ProgramPackageRequest,
     ProgramSafetyClass, RunningProgram,
 };
-use crate::decisions::{decide, DecisionAnswer, DecisionConfiguration, DecisionError};
+use super::triage_questions::{
+    RequestBody, TriageQuestion, TriageQuestionKind, TriageQuestionSet, TriageQuestionSource,
+    MISS_QUESTION, ROLE_QUESTION,
+};
+use crate::decisions::{
+    decide, DecisionAnswer, DecisionConfiguration, DecisionError, DecisionResponse,
+};
 
 const CONCURRENT_REQUESTS: usize = 8;
 const MAX_PROGRAMS: usize = 400;
 const DAY_MS: u64 = 86_400_000;
+const BUILT_IN_MISS_LEVELS: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,38 +68,47 @@ impl TriageRole {
         }
     }
 
-    fn criterion(self) -> &'static str {
-        match self {
-            Self::Desktop => "Part of the desktop environment or operating system that the login session or the computer itself needs",
-            Self::Needed => "A service, helper or library that another program on this computer needs in order to work",
-            Self::Tool => "An application, tool or service a person installed on purpose and still uses",
-            Self::Leftover => "Installed for a past task, an experiment or by an install script, and not needed by anything in use now",
-            Self::Unclear => "The facts given are not enough to tell which of the other answers fits",
-        }
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|role| role.key() == key)
     }
 }
 
-/// How much stopping the program would be noticed, lowest first.
-const MISS_LEVELS: [&str; 5] = [
-    "Nothing anyone uses would change",
-    "A minor or rarely used feature would stop",
-    "A feature in regular use would stop working",
-    "Something used every day would break",
-    "The desktop session or the system would stop working",
-];
+/// One question's answer after averaging both option orders.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum TriageAnswer {
+    #[serde(rename_all = "camelCase")]
+    Choice {
+        choice: String,
+        probabilities: BTreeMap<String, f64>,
+        confidence: f64,
+        /// Both option orders picked the same option.
+        orders_agree: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Score {
+        /// Expected level, from 0 (the first level) upward.
+        expected: f64,
+        probabilities: Vec<f64>,
+    },
+    Noul {
+        probability: f64,
+    },
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgramTriage {
     pub program_id: String,
-    pub role: TriageRole,
+    /// Every question's answer, keyed by question id.
+    pub answers: BTreeMap<String, TriageAnswer>,
+    /// From the `role` question when it uses the built-in options; drives the page's labels.
+    pub role: Option<TriageRole>,
     pub role_probabilities: BTreeMap<TriageRole, f64>,
-    /// Probability of the chosen role after averaging both option orders.
     pub confidence: f64,
-    /// Expected level on the miss scale, from 0 (nothing changes) to 4 (the system stops).
-    pub miss_level: f64,
+    /// From the `miss` score question: 0 (nothing changes) to its highest level.
+    pub miss_level: Option<f64>,
     pub miss_probabilities: Vec<f64>,
-    /// Both option orders picked the same role.
     pub orders_agree: bool,
 }
 
@@ -108,6 +124,8 @@ pub struct TriageFailure {
 pub struct TriageReport {
     /// The model that answered, as the provider reported it.
     pub model: String,
+    pub questions: TriageQuestionSet,
+    pub question_source: TriageQuestionSource,
     pub results: Vec<ProgramTriage>,
     pub failures: Vec<TriageFailure>,
     pub input_tokens: u64,
@@ -122,6 +140,7 @@ struct LastScan {
 }
 
 static LAST_SCAN: Mutex<Option<LastScan>> = Mutex::new(None);
+static LAST_REPORT: Mutex<Option<TriageReport>> = Mutex::new(None);
 static TRIAGE_RUNNING: AtomicBool = AtomicBool::new(false);
 static TRIAGE_CANCELLED: AtomicBool = AtomicBool::new(false);
 
@@ -137,6 +156,10 @@ pub(super) fn remember_programs(
             home,
             programs: programs.to_vec(),
         });
+    }
+    // A triage judged the facts of an earlier scan; exporting it beside new costs would mix them.
+    if let Ok(mut report) = LAST_REPORT.lock() {
+        *report = None;
     }
 }
 
@@ -303,116 +326,7 @@ pub(super) fn program_state(program: &RunningProgram, now_ms: u64, home: Option<
     Value::Object(state)
 }
 
-/// Choice options in a fixed order. JSON objects in this crate serialize sorted by key, which
-/// would undo the order reversal, so the map is written entry by entry.
-struct OrderedCriteria(Vec<TriageRole>);
-
-impl Serialize for OrderedCriteria {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for role in &self.0 {
-            map.serialize_entry(role.key(), role.criterion())?;
-        }
-        map.end()
-    }
-}
-
-#[derive(Serialize)]
-struct RoleQuestion {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    instructions: &'static str,
-    criteria: OrderedCriteria,
-}
-
-#[derive(Serialize)]
-struct MissQuestion {
-    #[serde(rename = "type")]
-    kind: &'static str,
-    instructions: &'static str,
-    criteria: [&'static str; 5],
-}
-
-#[derive(Serialize)]
-struct Questions {
-    role: RoleQuestion,
-    miss: MissQuestion,
-}
-
-#[derive(Serialize)]
-pub(super) struct RequestBody {
-    state: Value,
-    questions: Questions,
-}
-
-/// One request body. `reversed` flips the order of the role options; score levels must stay
-/// listed lowest first.
-pub(super) fn request_body(state: &Value, reversed: bool) -> RequestBody {
-    let mut roles = TriageRole::ALL.to_vec();
-    if reversed {
-        roles.reverse();
-    }
-    RequestBody {
-        state: state.clone(),
-        questions: Questions {
-            role: RoleQuestion {
-                kind: "choice",
-                instructions: "What is this program's role on this computer? Judge only from the facts given about the program.",
-                criteria: OrderedCriteria(roles),
-            },
-            miss: MissQuestion {
-                kind: "score",
-                instructions: "If this program stopped and never started again, how much would the person who uses this computer notice?",
-                criteria: MISS_LEVELS,
-            },
-        },
-    }
-}
-
-struct OneOrder {
-    roles: BTreeMap<TriageRole, f64>,
-    chosen: Option<TriageRole>,
-    miss: Vec<f64>,
-}
-
-fn role_from_key(key: &str) -> Option<TriageRole> {
-    TriageRole::ALL.into_iter().find(|role| role.key() == key)
-}
-
-fn read_order(answers: &BTreeMap<String, DecisionAnswer>) -> Option<OneOrder> {
-    let DecisionAnswer::Choice {
-        choice,
-        probabilities,
-    } = answers.get("role")?
-    else {
-        return None;
-    };
-    let roles: BTreeMap<TriageRole, f64> = probabilities
-        .iter()
-        .filter_map(|(key, probability)| role_from_key(key).map(|role| (role, *probability)))
-        .collect();
-    let miss = match answers.get("miss") {
-        Some(DecisionAnswer::Score { probabilities, .. }) if !probabilities.is_empty() => (0
-            ..MISS_LEVELS.len())
-            .map(|level| {
-                probabilities
-                    .get(&level.to_string())
-                    .copied()
-                    .unwrap_or(0.0)
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
-    Some(OneOrder {
-        roles,
-        chosen: role_from_key(choice),
-        miss,
-    })
-}
-
-fn normalized(values: impl Iterator<Item = f64>) -> Vec<f64> {
-    let values: Vec<f64> = values.collect();
+fn normalized(values: Vec<f64>) -> Vec<f64> {
     let total: f64 = values.iter().sum();
     if total > 0.0 {
         values.iter().map(|value| value / total).collect()
@@ -421,59 +335,177 @@ fn normalized(values: impl Iterator<Item = f64>) -> Vec<f64> {
     }
 }
 
-/// Averages the two option orders into one result.
+fn average(rows: &[Vec<f64>]) -> Vec<f64> {
+    let Some(width) = rows.first().map(Vec::len) else {
+        return Vec::new();
+    };
+    normalized(
+        (0..width)
+            .map(|index| rows.iter().map(|row| row[index]).sum::<f64>() / rows.len() as f64)
+            .collect(),
+    )
+}
+
+/// Averages one question's answers from both option orders.
+fn combine_question(
+    question: &TriageQuestion,
+    passes: &[&BTreeMap<String, DecisionAnswer>],
+) -> Option<TriageAnswer> {
+    let answers: Vec<&DecisionAnswer> = passes
+        .iter()
+        .filter_map(|pass| pass.get(&question.id))
+        .collect();
+    match &question.kind {
+        TriageQuestionKind::Choice { options } => {
+            let mut chosen = Vec::new();
+            let rows: Vec<Vec<f64>> = answers
+                .iter()
+                .filter_map(|answer| match answer {
+                    DecisionAnswer::Choice {
+                        choice,
+                        probabilities,
+                    } => {
+                        chosen.push(choice.clone());
+                        Some(
+                            options
+                                .iter()
+                                .map(|option| probabilities.get(&option.id).copied().unwrap_or(0.0))
+                                .collect(),
+                        )
+                    }
+                    _ => None,
+                })
+                .collect();
+            let averaged = average(&rows);
+            let (best, confidence) = averaged
+                .iter()
+                .enumerate()
+                .max_by(|left, right| left.1.total_cmp(right.1))
+                .map(|(index, probability)| (index, *probability))?;
+            if confidence <= 0.0 {
+                return None;
+            }
+            Some(TriageAnswer::Choice {
+                choice: options[best].id.clone(),
+                probabilities: options
+                    .iter()
+                    .map(|option| option.id.clone())
+                    .zip(averaged)
+                    .collect(),
+                confidence,
+                orders_agree: chosen.len() == 2 && chosen[0] == chosen[1],
+            })
+        }
+        TriageQuestionKind::Score { levels } => {
+            let rows: Vec<Vec<f64>> = answers
+                .iter()
+                .filter_map(|answer| match answer {
+                    DecisionAnswer::Score { probabilities, .. } if !probabilities.is_empty() => {
+                        Some(
+                            (0..levels.len())
+                                .map(|level| {
+                                    probabilities
+                                        .get(&level.to_string())
+                                        .copied()
+                                        .unwrap_or(0.0)
+                                })
+                                .collect(),
+                        )
+                    }
+                    _ => None,
+                })
+                .collect();
+            let probabilities = average(&rows);
+            if probabilities.iter().sum::<f64>() <= 0.0 {
+                return None;
+            }
+            let expected = probabilities
+                .iter()
+                .enumerate()
+                .map(|(level, probability)| level as f64 * probability)
+                .sum();
+            Some(TriageAnswer::Score {
+                expected,
+                probabilities,
+            })
+        }
+        TriageQuestionKind::Noul => {
+            let values: Vec<f64> = answers
+                .iter()
+                .filter_map(|answer| match answer {
+                    DecisionAnswer::Noul { probability } => Some(*probability),
+                    _ => None,
+                })
+                .collect();
+            (!values.is_empty()).then(|| TriageAnswer::Noul {
+                probability: values.iter().sum::<f64>() / values.len() as f64,
+            })
+        }
+    }
+}
+
+/// Combines both passes for one program. `None` when no question got a usable answer.
 pub(super) fn combine(
     program_id: &str,
+    set: &TriageQuestionSet,
     first: &BTreeMap<String, DecisionAnswer>,
     second: &BTreeMap<String, DecisionAnswer>,
 ) -> Option<ProgramTriage> {
-    let orders: Vec<OneOrder> = [first, second].into_iter().filter_map(read_order).collect();
-    if orders.is_empty() {
+    let passes = [first, second];
+    let answers: BTreeMap<String, TriageAnswer> = set
+        .questions
+        .iter()
+        .filter_map(|question| {
+            combine_question(question, &passes).map(|answer| (question.id.clone(), answer))
+        })
+        .collect();
+    if answers.is_empty() {
         return None;
     }
-    let averaged = normalized(TriageRole::ALL.iter().map(|role| {
-        orders
-            .iter()
-            .map(|order| order.roles.get(role).copied().unwrap_or(0.0))
-            .sum::<f64>()
-            / orders.len() as f64
-    }));
-    let role_probabilities: BTreeMap<TriageRole, f64> = TriageRole::ALL
-        .into_iter()
-        .zip(averaged.iter().copied())
-        .collect();
-    let (role, confidence) = role_probabilities
-        .iter()
-        .max_by(|left, right| left.1.total_cmp(right.1))
-        .map(|(role, probability)| (*role, *probability))?;
-    let miss_orders: Vec<&Vec<f64>> = orders
-        .iter()
-        .map(|order| &order.miss)
-        .filter(|miss| !miss.is_empty())
-        .collect();
-    let miss_probabilities = if miss_orders.is_empty() {
-        Vec::new()
-    } else {
-        normalized((0..MISS_LEVELS.len()).map(|level| {
-            miss_orders.iter().map(|miss| miss[level]).sum::<f64>() / miss_orders.len() as f64
-        }))
-    };
-    let miss_level = miss_probabilities
-        .iter()
-        .enumerate()
-        .map(|(level, probability)| level as f64 * probability)
-        .sum();
-    let orders_agree =
-        orders.len() == 2 && orders[0].chosen.is_some() && orders[0].chosen == orders[1].chosen;
-    Some(ProgramTriage {
+    let mut result = ProgramTriage {
         program_id: program_id.to_owned(),
-        role,
-        role_probabilities,
+        role: None,
+        role_probabilities: BTreeMap::new(),
+        confidence: 0.0,
+        miss_level: None,
+        miss_probabilities: Vec::new(),
+        orders_agree: true,
+        answers,
+    };
+    if let Some(TriageAnswer::Choice {
+        choice,
+        probabilities,
         confidence,
-        miss_level,
-        miss_probabilities,
         orders_agree,
-    })
+    }) = result.answers.get(ROLE_QUESTION)
+    {
+        // Labels apply only when the role question uses the built-in option ids.
+        let roles: BTreeMap<TriageRole, f64> = probabilities
+            .iter()
+            .filter_map(|(key, probability)| {
+                TriageRole::from_key(key).map(|role| (role, *probability))
+            })
+            .collect();
+        if roles.len() == probabilities.len() {
+            result.role = TriageRole::from_key(choice);
+            result.role_probabilities = roles;
+            result.confidence = *confidence;
+        }
+        result.orders_agree = *orders_agree;
+    }
+    if let Some(TriageAnswer::Score {
+        expected,
+        probabilities,
+    }) = result.answers.get(MISS_QUESTION)
+    {
+        // The page labels the five built-in levels; a custom scale stays in `answers` only.
+        if probabilities.len() != BUILT_IN_MISS_LEVELS {
+            return Some(result);
+        }
+        result.miss_level = Some(*expected);
+        result.miss_probabilities = probabilities.clone();
+    }
+    Some(result)
 }
 
 struct RunningGuard;
@@ -498,32 +530,41 @@ pub fn cancel_triage() {
     TRIAGE_CANCELLED.store(true, Ordering::Release);
 }
 
-/// Triages the last scanned programs, or only `program_ids` when given. Core components are
-/// left out: they are part of the session and not candidates for triage.
-pub async fn triage_programs(
-    program_ids: Option<Vec<String>>,
-) -> Result<TriageReport, DecisionError> {
+/// What to judge and which questions to ask.
+#[derive(Debug, Clone, Default)]
+pub struct TriageRequest {
+    /// Only these programs; all non-core programs when `None`.
+    pub program_ids: Option<Vec<String>>,
+    /// Questions for this run only; the active set when `None`.
+    pub questions: Option<TriageQuestionSet>,
+    /// A model for this run only, to compare models on one scan; the saved model when `None`.
+    pub model: Option<String>,
+}
+
+/// Triages the last scanned programs. Core components are left out: they are part of the
+/// session and not candidates for triage.
+pub async fn triage_programs(request: TriageRequest) -> Result<TriageReport, DecisionError> {
     let _guard = RunningGuard::acquire()?;
-    let configuration = DecisionConfiguration::load()?.ok_or(DecisionError::NotConfigured)?;
+    let mut configuration = DecisionConfiguration::load()?.ok_or(DecisionError::NotConfigured)?;
+    if let Some(model) = request.model {
+        configuration.model = model.trim().to_owned();
+        configuration.validate()?;
+    }
     configuration.ready()?;
-    let (captured_at_ms, home, programs) = LAST_SCAN
-        .lock()
-        .ok()
-        .and_then(|last| {
-            last.as_ref().map(|scan| {
-                (
-                    scan.captured_at_ms,
-                    scan.home.clone(),
-                    scan.programs.clone(),
-                )
-            })
-        })
-        .ok_or(DecisionError::NothingToJudge)?;
+    let (questions, question_source) = match request.questions {
+        Some(set) => {
+            set.validate()?;
+            (set, TriageQuestionSource::Supplied)
+        }
+        None => TriageQuestionSet::active()?,
+    };
+    let (captured_at_ms, home, programs) = last_scan().ok_or(DecisionError::NothingToJudge)?;
     let candidates: Vec<RunningProgram> = programs
         .into_iter()
         .filter(|program| program.safety != ProgramSafetyClass::Core)
         .filter(|program| {
-            program_ids
+            request
+                .program_ids
                 .as_ref()
                 .is_none_or(|ids| ids.contains(&program.id))
         })
@@ -534,33 +575,35 @@ pub async fn triage_programs(
     }
     let started = Instant::now();
     log::info!(
-        "running_programs_triage_started program_count={} model={:?}",
+        "running_programs_triage_started program_count={} question_count={} question_source={question_source:?} model={:?}",
         candidates.len(),
+        questions.questions.len(),
         configuration.model
     );
     // Jobs own their data so the request futures are `Send` for any caller's runtime.
-    let jobs: Vec<(String, bool, RequestBody)> = candidates
+    let jobs: Vec<(String, bool, Value)> = candidates
         .iter()
         .flat_map(|program| {
             let state = program_state(program, captured_at_ms, home.as_deref());
-            [false, true]
-                .map(|reversed| (program.id.clone(), reversed, request_body(&state, reversed)))
+            [false, true].map(|reversed| (program.id.clone(), reversed, state.clone()))
         })
         .collect();
-    let shared = std::sync::Arc::new(configuration.clone());
-    type Outcome = (
-        String,
-        bool,
-        Result<crate::decisions::DecisionResponse, DecisionError>,
-    );
+    let shared = Arc::new((configuration.clone(), questions.clone()));
+    type Outcome = (String, bool, Result<DecisionResponse, DecisionError>);
     let responses: Vec<Outcome> = stream::iter(jobs)
-        .map(move |(id, reversed, body)| {
-            let configuration = std::sync::Arc::clone(&shared);
+        .map(move |(id, reversed, state)| {
+            let shared = Arc::clone(&shared);
             async move {
                 if TRIAGE_CANCELLED.load(Ordering::Acquire) {
                     return (id, reversed, Err(DecisionError::Cancelled));
                 }
-                let result = decide(&configuration, &body).await;
+                let (configuration, questions) = &*shared;
+                let body = RequestBody {
+                    state,
+                    set: questions,
+                    reversed,
+                };
+                let result = decide(configuration, &body).await;
                 (id, reversed, result)
             }
         })
@@ -609,6 +652,7 @@ pub async fn triage_programs(
         let combined = by_program.get(&program.id).and_then(|[first, second]| {
             combine(
                 &program.id,
+                &questions,
                 first.as_ref().unwrap_or(&empty),
                 second.as_ref().unwrap_or(&empty),
             )
@@ -630,14 +674,46 @@ pub async fn triage_programs(
         results.len(),
         failures.len(),
     );
-    Ok(TriageReport {
+    let report = TriageReport {
         model: model.unwrap_or(configuration.model),
+        questions,
+        question_source,
         results,
         failures,
         input_tokens,
         cost_usd: cost,
         elapsed_ms,
+    };
+    if let Ok(mut last) = LAST_REPORT.lock() {
+        *last = Some(report.clone());
+    }
+    Ok(report)
+}
+
+fn last_scan() -> Option<(u64, Option<String>, Vec<RunningProgram>)> {
+    let last = LAST_SCAN.lock().ok()?;
+    last.as_ref().map(|scan| {
+        (
+            scan.captured_at_ms,
+            scan.home.clone(),
+            scan.programs.clone(),
+        )
     })
+}
+
+/// The last scan and triage, for exports. The report is `None` before the first triage.
+/// The capture time, home folder, programs and triage of the last scan.
+pub(super) type ScanAndReport = (
+    u64,
+    Option<String>,
+    Vec<RunningProgram>,
+    Option<TriageReport>,
+);
+
+pub(super) fn last_scan_and_report() -> Option<ScanAndReport> {
+    let (captured_at_ms, home, programs) = last_scan()?;
+    let report = LAST_REPORT.lock().ok().and_then(|report| report.clone());
+    Some((captured_at_ms, home, programs, report))
 }
 
 #[cfg(test)]

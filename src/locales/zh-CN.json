@@ -5025,6 +5025,9 @@
         "busy": "分拣已在进行中",
         "cancelled": "分拣已取消",
         "nothingToJudge": "请先扫描运行中的程序",
+        "invalidQuestions": "问题文件无效；修正或删除后将使用内置问题",
+        "invalidExportPath": "导出只能保存为 .json 或 .md 文件",
+        "exportFailed": "无法保存导出文件",
         "unauthorized": "OpenRouter 不接受该 API 密钥",
         "insufficientCredits": "你的 OpenRouter 账户额度已用完",
         "rateLimited": "OpenRouter 正在限制请求；请一分钟后重试",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "无法连接 OpenRouter",
         "timeout": "OpenRouter 响应超时",
         "invalidResponse": "OpenRouter 返回了 MangoDisk 无法读取的回答"
+      },
+      "answerLevel": "等级 {level}",
+      "answerTrue": "{percent} 可能成立",
+      "editQuestions": "编辑问题",
+      "questionsInvalid": "你的问题文件有错误；修正或删除之前不会运行分类",
+      "exportMarkdown": "导出 Markdown",
+      "exportJson": "导出 JSON",
+      "exportDialogTitle": "保存分类结果",
+      "exportHint": "每个程序附带模型看到的信息、资源占用和回答，供人或其他模型复核",
+      "exported": "已保存",
+      "showExport": "在文件夹中显示",
+      "questionSources": {
+        "builtIn": "问题：内置",
+        "file": "问题：你的文件（{count}）",
+        "supplied": "问题：为单次运行提供"
       }
     }
   }

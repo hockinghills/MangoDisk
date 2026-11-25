@@ -5025,6 +5025,9 @@
         "busy": "仕分けはすでに実行中です",
         "cancelled": "仕分けをキャンセルしました",
         "nothingToJudge": "先に実行中のプログラムをスキャンしてください",
+        "invalidQuestions": "質問ファイルが無効です。修正するか削除すると組み込みの質問を使います",
+        "invalidExportPath": "書き出しは .json または .md ファイルにのみ保存できます",
+        "exportFailed": "書き出しを保存できませんでした",
         "unauthorized": "OpenRouter が API キーを受け付けませんでした",
         "insufficientCredits": "OpenRouter アカウントのクレジットがありません",
         "rateLimited": "OpenRouter がリクエストを制限しています。1 分後にもう一度お試しください",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "OpenRouter に接続できません",
         "timeout": "OpenRouter の応答に時間がかかりすぎました",
         "invalidResponse": "OpenRouter から MangoDisk が読み取れない回答が返されました"
+      },
+      "answerLevel": "レベル {level}",
+      "answerTrue": "{percent} の確率で該当",
+      "editQuestions": "質問を編集",
+      "questionsInvalid": "質問ファイルに問題があります。修正するか削除するまでトリアージは実行されません",
+      "exportMarkdown": "Markdown で書き出す",
+      "exportJson": "JSON で書き出す",
+      "exportDialogTitle": "トリアージを書き出す",
+      "exportHint": "モデルが見た情報、コスト、回答をプログラムごとにまとめ、人や別のモデルが確認できるようにします",
+      "exported": "保存しました",
+      "showExport": "フォルダーで表示",
+      "questionSources": {
+        "builtIn": "質問：組み込み",
+        "file": "質問：あなたのファイル（{count}）",
+        "supplied": "質問：1 回分の指定"
       }
     }
   }

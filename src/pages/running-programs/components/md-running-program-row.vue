@@ -8,7 +8,7 @@ import MdTooltip from '@/components/custom/md-tooltip.vue';
 import MdIcon from '@/components/icons/md-icon.vue';
 import { ICON_NAMES } from '@/lib/models/presentation/ui';
 import type { ProgramSafetyClass, RunningProgram } from '@/lib/models/running-programs/running-programs';
-import type { ProgramTriage, TriageRole } from '@/lib/models/running-programs/triage';
+import type { ProgramTriage, TriageAnswer, TriageRole } from '@/lib/models/running-programs/triage';
 import { TRIAGE_ROLES } from '@/lib/models/running-programs/triage';
 import { FormatService } from '@/lib/services/presentation/format-service';
 import { ByteSizeService } from '@/lib/services/settings/byte-size-service';
@@ -102,17 +102,51 @@ function percent(value: number): string {
 }
 
 const triageRoles = computed(() =>
-  props.triage
+  props.triage?.role
     ? TRIAGE_ROLES.map(role => ({ role, probability: props.triage?.roleProbabilities[role] ?? 0 })).sort(
         (left, right) => right.probability - left.probability
       )
     : []
 );
 const missLevelKey = computed(() =>
-  props.triage && props.triage.missProbabilities.length
+  props.triage && props.triage.missLevel !== null
     ? `runningPrograms.triage.missLevels.${Math.min(4, Math.max(0, Math.round(props.triage.missLevel)))}`
     : null
 );
+
+function answerText(answer: TriageAnswer): string {
+  switch (answer.type) {
+    case 'choice':
+      return `${answer.choice} ${percent(answer.confidence)}`;
+    case 'score':
+      return t('runningPrograms.triage.answerLevel', { level: answer.expected.toFixed(1) });
+    case 'noul':
+      return t('runningPrograms.triage.answerTrue', { percent: percent(answer.probability) });
+  }
+}
+
+/** Answers the page has no labels for, from custom questions, shown with their own ids. */
+const otherAnswers = computed(() => {
+  const triage = props.triage;
+  if (!triage) return [];
+  return Object.entries(triage.answers)
+    .filter(([id]) => !(id === 'role' && triage.role !== null) && !(id === 'miss' && triage.missLevel !== null))
+    .map(([id, answer]) => ({ id, text: answerText(answer) }));
+});
+
+/** The chip: the built-in role, or else the first choice answer of a custom set. */
+const chip = computed(() => {
+  const triage = props.triage;
+  if (!triage) return null;
+  if (triage.role) {
+    return {
+      tone: TRIAGE_TONES[triage.role],
+      text: `${t(`runningPrograms.triage.roles.${triage.role}`)} ${percent(triage.confidence)}`,
+    };
+  }
+  const choice = Object.values(triage.answers).find(answer => answer.type === 'choice');
+  return choice ? { tone: 'neutral' as const, text: answerText(choice) } : null;
+});
 
 const startedText = computed(() => FormatService.dateTime(props.program.startedAtMs, locale.value));
 </script>
@@ -152,10 +186,8 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
         <span class="program-metric">{{ cpuPercentText(program.cpuPercentNow) }}</span>
         <span class="program-metric program-metric--muted">{{ cpuPercentText(program.cpuPercentAverage) }}</span>
         <span class="program-badges">
-          <MdTooltip v-if="triage" :text="t('runningPrograms.triage.chipHint')">
-            <MdStatusBadge size="compact" :tone="TRIAGE_TONES[triage.role]">
-              {{ t(`runningPrograms.triage.roles.${triage.role}`) }} {{ percent(triage.confidence) }}
-            </MdStatusBadge>
+          <MdTooltip v-if="chip" :text="t('runningPrograms.triage.chipHint')">
+            <MdStatusBadge size="compact" :tone="chip.tone">{{ chip.text }}</MdStatusBadge>
           </MdTooltip>
           <MdTooltip :text="t(`runningPrograms.safetyDescriptions.${program.safety}`)">
             <MdStatusBadge size="compact" :tone="SAFETY_TONES[program.safety]">
@@ -176,6 +208,7 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
                 {{ t(`runningPrograms.triage.roles.${entry.role}`) }}: {{ percent(entry.probability) }}
               </li>
               <li v-if="missLevelKey">{{ t('runningPrograms.triage.missPrefix') }} {{ t(missLevelKey) }}</li>
+              <li v-for="entry in otherAnswers" :key="entry.id">{{ entry.id }}: {{ entry.text }}</li>
               <li v-if="!triage.ordersAgree">{{ t('runningPrograms.triage.ordersDisagree') }}</li>
             </ul>
           </dd>

@@ -5025,6 +5025,9 @@
         "busy": "Ya hay una clasificación en curso",
         "cancelled": "Se canceló la clasificación",
         "nothingToJudge": "Analiza primero los programas en ejecución",
+        "invalidQuestions": "El archivo de preguntas no es válido; corrígelo o quítalo para usar las preguntas integradas",
+        "invalidExportPath": "Las exportaciones solo se pueden guardar como archivos .json o .md",
+        "exportFailed": "No se pudo guardar la exportación",
         "unauthorized": "OpenRouter no aceptó la clave de API",
         "insufficientCredits": "Tu cuenta de OpenRouter no tiene créditos",
         "rateLimited": "OpenRouter está limitando las solicitudes; vuelve a intentarlo en un minuto",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "No se pudo contactar con OpenRouter",
         "timeout": "OpenRouter tardó demasiado en responder",
         "invalidResponse": "OpenRouter envió una respuesta que MangoDisk no pudo leer"
+      },
+      "answerLevel": "nivel {level}",
+      "answerTrue": "{percent} probablemente cierto",
+      "editQuestions": "Editar preguntas",
+      "questionsInvalid": "Tu archivo de preguntas tiene un problema; la clasificación no se ejecutará hasta corregirlo o quitarlo",
+      "exportMarkdown": "Exportar Markdown",
+      "exportJson": "Exportar JSON",
+      "exportDialogTitle": "Guardar la clasificación",
+      "exportHint": "Cada programa con los datos que vio el modelo, sus costes y las respuestas, para que lo revise una persona u otro modelo",
+      "exported": "Guardado",
+      "showExport": "Mostrar en la carpeta",
+      "questionSources": {
+        "builtIn": "Preguntas: integradas",
+        "file": "Preguntas: tu archivo ({count})",
+        "supplied": "Preguntas: dadas para una ejecución"
       }
     }
   }

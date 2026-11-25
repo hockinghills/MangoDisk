@@ -100,12 +100,15 @@ pub use reporting::{
     EngineBenchmarkComparisonService, EngineBenchmarkOptions, EngineBenchmarkService,
 };
 pub use running_programs::{
-    cancel_triage, triage_programs, ProgramContainer, ProgramContainerEngine, ProgramDateSource,
+    cancel_triage, export_triage, questions_path, suggested_export_file_name, triage_programs,
+    write_triage_export, ProgramContainer, ProgramContainerEngine, ProgramDateSource,
     ProgramLaunch, ProgramLaunchKind, ProgramOrigin, ProgramOriginFact, ProgramOriginKind,
     ProgramPackageManager, ProgramPackageRequest, ProgramProcess, ProgramProcessRole,
     ProgramSafetyClass, ProgramTriage, ProgramUnitFileOrigin, ProgramUnitScope, RunningProgram,
     RunningProgramsMemory, RunningProgramsService, RunningProgramsSnapshot, RunningProgramsSummary,
-    TriageFailure, TriageReport, TriageRole, RUNNING_PROGRAMS_SCHEMA_VERSION,
+    TriageAnswer, TriageExportFormat, TriageFailure, TriageOption, TriageQuestion,
+    TriageQuestionKind, TriageQuestionSet, TriageQuestionSource, TriageReport, TriageRequest,
+    TriageRole, RUNNING_PROGRAMS_SCHEMA_VERSION,
 };
 pub use shared::{
     configure_application_paths, ApplicationPaths, ApplicationRestartGuard, CoreError,

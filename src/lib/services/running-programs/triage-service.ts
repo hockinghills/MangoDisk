@@ -5,6 +5,8 @@ import type {
   DecisionErrorCode,
   DecisionModel,
   DecisionSettings,
+  TriageExportFormat,
+  TriageQuestionsInfo,
   TriageReport,
 } from '@/lib/models/running-programs/triage';
 import { DECISION_ERROR_CODES } from '@/lib/models/running-programs/triage';
@@ -33,6 +35,20 @@ export class TriageService {
 
   static cancel(): Promise<void> {
     return invoke<void>('running_programs_cancel_triage');
+  }
+
+  static questions(): Promise<TriageQuestionsInfo> {
+    return invoke<TriageQuestionsInfo>('running_programs_triage_questions');
+  }
+
+  /** Writes the built-in questions to the question file unless it exists; returns its path. */
+  static createQuestions(): Promise<string> {
+    return invoke<string>('running_programs_create_triage_questions');
+  }
+
+  /** Opens the native save picker; resolves to the saved path, or `null` when cancelled. */
+  static export(format: TriageExportFormat, dialogTitle: string): Promise<string | null> {
+    return invoke<string | null>('running_programs_export_triage', { format, dialogTitle });
   }
 
   /** Decision commands reject with a bare code string. */

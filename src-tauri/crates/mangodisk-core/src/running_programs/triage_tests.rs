@@ -1,5 +1,6 @@
 use super::*;
 use crate::running_programs::models::{ProgramOrigin, ProgramProcess};
+use crate::running_programs::triage_questions::TriageQuestionSet;
 
 const NOW: u64 = 1_800_000_000_000;
 
@@ -95,37 +96,6 @@ fn the_state_holds_facts_but_no_commands_costs_dates_or_home_path() {
     }
 }
 
-#[test]
-fn request_bodies_reverse_only_the_choice_options() {
-    let state = json!({"name": "x"});
-    let order = |reversed: bool| -> Vec<usize> {
-        let text = serde_json::to_string(&request_body(&state, reversed)).unwrap();
-        [
-            "\"desktop\"",
-            "\"needed\"",
-            "\"tool\"",
-            "\"leftover\"",
-            "\"unclear\"",
-        ]
-        .iter()
-        .map(|key| text.find(key).expect("every option is sent"))
-        .collect()
-    };
-    let forward = order(false);
-    assert!(
-        forward.windows(2).all(|pair| pair[0] < pair[1]),
-        "{forward:?}"
-    );
-    let backward = order(true);
-    assert!(
-        backward.windows(2).all(|pair| pair[0] > pair[1]),
-        "{backward:?}"
-    );
-    let text = serde_json::to_string(&request_body(&state, true)).unwrap();
-    assert!(text.contains("\"type\":\"score\""));
-    assert!(text.find("Nothing anyone uses").unwrap() < text.find("The desktop session").unwrap());
-}
-
 fn answers(
     role: &str,
     probabilities: &[(&str, f64)],
@@ -156,6 +126,10 @@ fn answers(
     map
 }
 
+fn built_in() -> TriageQuestionSet {
+    TriageQuestionSet::built_in()
+}
+
 #[test]
 fn both_orders_are_averaged() {
     let first = answers(
@@ -168,12 +142,15 @@ fn both_orders_are_averaged() {
         &[("leftover", 0.4), ("tool", 0.6)],
         &[0.2, 0.8, 0.0, 0.0, 0.0],
     );
-    let result = combine("p", &first, &second).expect("answers");
-    assert_eq!(result.role, TriageRole::Leftover);
+    let result = combine("p", &built_in(), &first, &second).expect("answers");
+    assert_eq!(result.role, Some(TriageRole::Leftover));
     assert!((result.confidence - 0.6).abs() < 1e-9);
     assert!(!result.orders_agree);
     assert!((result.miss_probabilities[1] - 0.6).abs() < 1e-9);
-    assert!((result.miss_level - 0.6).abs() < 1e-9);
+    assert!((result.miss_level.unwrap() - 0.6).abs() < 1e-9);
+    assert!(
+        matches!(&result.answers["role"], TriageAnswer::Choice { choice, orders_agree: false, .. } if choice == "leftover")
+    );
 }
 
 #[test]
@@ -182,11 +159,11 @@ fn one_usable_order_still_gives_a_result_and_none_gives_nothing() {
     let refusal: BTreeMap<String, DecisionAnswer> = [("role".to_owned(), DecisionAnswer::Refusal)]
         .into_iter()
         .collect();
-    let result = combine("p", &first, &refusal).expect("one order");
-    assert_eq!(result.role, TriageRole::Needed);
-    assert!(result.miss_probabilities.is_empty());
+    let result = combine("p", &built_in(), &first, &refusal).expect("one order");
+    assert_eq!(result.role, Some(TriageRole::Needed));
+    assert!(result.miss_level.is_none());
     assert!(!result.orders_agree);
-    assert!(combine("p", &refusal, &BTreeMap::new()).is_none());
+    assert!(combine("p", &built_in(), &refusal, &BTreeMap::new()).is_none());
 }
 
 #[test]
@@ -196,11 +173,54 @@ fn unknown_option_keys_are_ignored() {
         &[("leftover", 0.5), ("surprise", 0.5)],
         &[1.0, 0.0, 0.0, 0.0, 0.0],
     );
-    let result = combine("p", &first, &first).expect("answers");
-    assert_eq!(result.role, TriageRole::Leftover);
+    let result = combine("p", &built_in(), &first, &first).expect("answers");
+    assert_eq!(result.role, Some(TriageRole::Leftover));
     assert!(
         (result.confidence - 1.0).abs() < 1e-9,
-        "probabilities renormalize over known roles"
+        "probabilities renormalize over known options"
     );
     assert!(result.orders_agree);
+}
+
+#[test]
+fn custom_questions_keep_generic_answers_without_page_labels() {
+    let set = TriageQuestionSet::parse(
+        r#"{"schemaVersion":1,"questions":[
+            {"id":"role","type":"choice","instructions":"Kind?","options":[{"id":"game","criterion":"A game"},{"id":"work","criterion":"Work software"}]},
+            {"id":"network","type":"noul","instructions":"It listens on the network"}
+        ]}"#,
+    )
+    .unwrap();
+    let pass = |game: f64, network: f64| -> BTreeMap<String, DecisionAnswer> {
+        [
+            (
+                "role".to_owned(),
+                DecisionAnswer::Choice {
+                    choice: "game".into(),
+                    probabilities: [("game".to_owned(), game), ("work".to_owned(), 1.0 - game)]
+                        .into_iter()
+                        .collect(),
+                },
+            ),
+            (
+                "network".to_owned(),
+                DecisionAnswer::Noul {
+                    probability: network,
+                },
+            ),
+        ]
+        .into_iter()
+        .collect()
+    };
+    let result = combine("p", &set, &pass(0.7, 0.2), &pass(0.9, 0.4)).expect("answers");
+    assert_eq!(
+        result.role, None,
+        "custom options do not map to page labels"
+    );
+    assert!(
+        matches!(result.answers["network"], TriageAnswer::Noul { probability } if (probability - 0.3).abs() < 1e-9)
+    );
+    assert!(
+        matches!(&result.answers["role"], TriageAnswer::Choice { choice, confidence, .. } if choice == "game" && (confidence - 0.8).abs() < 1e-9)
+    );
 }

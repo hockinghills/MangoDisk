@@ -5025,6 +5025,9 @@
         "busy": "이미 분류가 진행 중입니다",
         "cancelled": "분류를 취소했습니다",
         "nothingToJudge": "먼저 실행 중인 프로그램을 검사하세요",
+        "invalidQuestions": "질문 파일이 올바르지 않습니다. 고치거나 제거하면 기본 질문을 사용합니다",
+        "invalidExportPath": "내보내기는 .json 또는 .md 파일로만 저장할 수 있습니다",
+        "exportFailed": "내보내기를 저장하지 못했습니다",
         "unauthorized": "OpenRouter가 API 키를 받아들이지 않았습니다",
         "insufficientCredits": "OpenRouter 계정의 크레딧이 부족합니다",
         "rateLimited": "OpenRouter가 요청을 제한하고 있습니다. 1분 뒤 다시 시도하세요",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "OpenRouter에 연결할 수 없습니다",
         "timeout": "OpenRouter 응답이 너무 오래 걸렸습니다",
         "invalidResponse": "OpenRouter가 MangoDisk가 읽을 수 없는 답을 보냈습니다"
+      },
+      "answerLevel": "수준 {level}",
+      "answerTrue": "{percent} 확률로 해당",
+      "editQuestions": "질문 편집",
+      "questionsInvalid": "질문 파일에 문제가 있습니다. 고치거나 제거하기 전에는 분류가 실행되지 않습니다",
+      "exportMarkdown": "Markdown으로 내보내기",
+      "exportJson": "JSON으로 내보내기",
+      "exportDialogTitle": "분류 결과 저장",
+      "exportHint": "모델이 본 정보, 비용, 답변을 프로그램별로 담아 사람이나 다른 모델이 검토할 수 있게 합니다",
+      "exported": "저장됨",
+      "showExport": "폴더에서 보기",
+      "questionSources": {
+        "builtIn": "질문: 기본 제공",
+        "file": "질문: 내 파일 ({count})",
+        "supplied": "질문: 한 번 실행용으로 지정"
       }
     }
   }

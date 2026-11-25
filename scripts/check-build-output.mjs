@@ -153,18 +153,19 @@ const localeChunkLimitOverrides = new Map([
   // same rounding applies.
   // Administrator-rights scanning adds six labels with the same rounding.
   // Decision-model triage and the bucket weight add about 70 labels, same rounding.
-  ['fr-fr', { bytes: 364160, gzipBytes: 73904 }],
-  ['de-de', { bytes: 352864, gzipBytes: 74368 }],
-  ['es-es', { bytes: 354880, gzipBytes: 72032 }],
-  ['pt-br', { bytes: 348192, gzipBytes: 71040 }],
-  ['ko-kr', { bytes: 347872, gzipBytes: 70624 }],
+  // Triage questions and exports add 18 labels per locale, same rounding.
+  ['fr-fr', { bytes: 365600, gzipBytes: 74288 }],
+  ['de-de', { bytes: 354272, gzipBytes: 74752 }],
+  ['es-es', { bytes: 356256, gzipBytes: 72416 }],
+  ['pt-br', { bytes: 349568, gzipBytes: 71424 }],
+  ['ko-kr', { bytes: 349280, gzipBytes: 71008 }],
   // Retain the finishing-charge labels' additional 128 raw bytes for ja/ru.
-  ['ja-jp', { bytes: 380384, gzipBytes: 73616 }],
-  ['ru-ru', { bytes: 457312, gzipBytes: 82672 }],
-  ['zh-cn', { bytes: 311296, gzipBytes: 68288 }],
-  ['zh-tw', { bytes: 311296, gzipBytes: 68848 }],
-  ['en-us', { bytes: 313088, gzipBytes: 63888 }],
-  ['tr-tr', { bytes: 341696, gzipBytes: 69840 }],
+  ['ja-jp', { bytes: 381856, gzipBytes: 74000 }],
+  ['ru-ru', { bytes: 459072, gzipBytes: 83088 }],
+  ['zh-cn', { bytes: 311296, gzipBytes: 68640 }],
+  ['zh-tw', { bytes: 311296, gzipBytes: 69216 }],
+  ['en-us', { bytes: 314336, gzipBytes: 64224 }],
+  ['tr-tr', { bytes: 343104, gzipBytes: 70192 }],
 ]);
 
 function fail(message) {

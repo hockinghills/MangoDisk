@@ -5025,6 +5025,9 @@
         "busy": "A triage is already running",
         "cancelled": "Triage was cancelled",
         "nothingToJudge": "Scan running programs first",
+        "invalidQuestions": "The question file is not valid; fix it or remove it to use the built-in questions",
+        "invalidExportPath": "Exports can be saved only as .json or .md files",
+        "exportFailed": "The export could not be saved",
         "unauthorized": "OpenRouter did not accept the API key",
         "insufficientCredits": "Your OpenRouter account is out of credits",
         "rateLimited": "OpenRouter is limiting requests; try again in a minute",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "Could not reach OpenRouter",
         "timeout": "OpenRouter took too long to answer",
         "invalidResponse": "OpenRouter sent an answer MangoDisk could not read"
+      },
+      "answerLevel": "level {level}",
+      "answerTrue": "{percent} likely true",
+      "editQuestions": "Edit questions",
+      "questionsInvalid": "Your question file has a problem; triage will not run until it is fixed or removed",
+      "exportMarkdown": "Export Markdown",
+      "exportJson": "Export JSON",
+      "exportDialogTitle": "Save triage export",
+      "exportHint": "Every program with the facts the model saw, its costs and the answers, for review by a person or another model",
+      "exported": "Saved",
+      "showExport": "Show in folder",
+      "questionSources": {
+        "builtIn": "Questions: built-in",
+        "file": "Questions: your file ({count})",
+        "supplied": "Questions: supplied for one run"
       }
     }
   }

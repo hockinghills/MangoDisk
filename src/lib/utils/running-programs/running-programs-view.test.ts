@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import type { RunningProgram } from '@/lib/models/running-programs/running-programs';
+import type { ProgramTriage } from '@/lib/models/running-programs/triage';
 
-import { cpuPercentText, filterPrograms, isSideInstall, sortPrograms } from './running-programs-view';
+import {
+  cpuPercentText,
+  filterPrograms,
+  isSideInstall,
+  leftoverProbability,
+  sortPrograms,
+} from './running-programs-view';
 
 function program(overrides: Partial<RunningProgram> & { name: string }): RunningProgram {
   return {
@@ -84,31 +91,29 @@ describe('triage-aware view', () => {
   const big = program({ name: 'big', memoryKb: 1000 });
   const small = program({ name: 'small', memoryKb: 100 });
   const unjudged = program({ name: 'unjudged', memoryKb: 5000 });
-  const triage = new Map([
-    [
-      'big',
-      {
-        programId: 'big',
-        role: 'tool' as const,
-        roleProbabilities: { tool: 0.9, leftover: 0.1 },
-        confidence: 0.9,
-        missLevel: 2,
-        missProbabilities: [],
-        ordersAgree: true,
+  function judged(id: string, choice: string, probabilities: Record<string, number>): ProgramTriage {
+    return {
+      programId: id,
+      answers: {
+        role: {
+          type: 'choice',
+          choice,
+          probabilities,
+          confidence: Math.max(...Object.values(probabilities)),
+          ordersAgree: true,
+        },
       },
-    ],
-    [
-      'small',
-      {
-        programId: 'small',
-        role: 'leftover' as const,
-        roleProbabilities: { leftover: 0.95 },
-        confidence: 0.95,
-        missLevel: 0,
-        missProbabilities: [],
-        ordersAgree: true,
-      },
-    ],
+      role: null,
+      roleProbabilities: {},
+      confidence: 0,
+      missLevel: null,
+      missProbabilities: [],
+      ordersAgree: true,
+    };
+  }
+  const triage = new Map<string, ProgramTriage>([
+    ['big', judged('big', 'tool', { tool: 0.9, leftover: 0.1 })],
+    ['small', judged('small', 'leftover', { leftover: 0.95, tool: 0.05 })],
   ]);
 
   it('filters to programs the model calls leftovers', () => {
@@ -121,5 +126,11 @@ describe('triage-aware view', () => {
       'small',
       'unjudged',
     ]);
+  });
+
+  it('reads a leftover option from a custom role question and ignores sets without one', () => {
+    const custom = judged('x', 'game', { game: 0.7, work: 0.3 });
+    expect(leftoverProbability(custom)).toBeNull();
+    expect(leftoverProbability(judged('y', 'leftover', { leftover: 0.6, keep: 0.4 }))).toBe(0.6);
   });
 });

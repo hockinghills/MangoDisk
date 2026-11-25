@@ -370,6 +370,8 @@ mangodisk clean --format json --no-progress
 mangodisk clean --help
 ```
 
+On Linux, `mangodisk running-programs` scans running programs, triages them with the decision model connected in the desktop app, and prints a Markdown or JSON export for review. See [Running-programs triage](src-tauri/crates/mangodisk-core/src/running_programs/README.md) for the commands, the question file format and the export schema.
+
 ## Build from Source
 
 ### Prerequisites

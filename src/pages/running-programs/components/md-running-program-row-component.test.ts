@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { i18n } from '@/i18n';
 import type { RunningProgram } from '@/lib/models/running-programs/running-programs';
+import type { ProgramTriage } from '@/lib/models/running-programs/triage';
 
 import MdRunningProgramRow from './md-running-program-row.vue';
 
@@ -77,9 +78,9 @@ const program: RunningProgram = {
   executableReplaced: true,
 };
 
-function row(expanded: boolean) {
+function row(expanded: boolean, triage: ProgramTriage | null = null) {
   return mount(MdRunningProgramRow, {
-    props: { program, expanded, triage: null },
+    props: { program, expanded, triage },
     global: { plugins: [createPinia(), i18n], stubs: { MdIcon: true } },
   });
 }
@@ -110,5 +111,31 @@ describe('running program row', () => {
     expect(wrapper.get('.command-line').text()).toContain('--token ***');
     await wrapper.get('.program-main').trigger('click');
     expect(wrapper.emitted('toggleExpanded')).toHaveLength(1);
+  });
+
+  it('shows custom question answers by their own ids', () => {
+    const wrapper = row(true, {
+      programId: program.id,
+      answers: {
+        kind: {
+          type: 'choice',
+          choice: 'game',
+          probabilities: { game: 0.8, work: 0.2 },
+          confidence: 0.8,
+          ordersAgree: true,
+        },
+        network: { type: 'noul', probability: 0.3 },
+      },
+      role: null,
+      roleProbabilities: {},
+      confidence: 0,
+      missLevel: null,
+      missProbabilities: [],
+      ordersAgree: true,
+    });
+    expect(wrapper.get('.program-badges').text()).toContain('game 80%');
+    const detail = wrapper.get('.program-detail').text();
+    expect(detail).toContain('kind: game 80%');
+    expect(detail).toContain(`network: ${i18n.global.t('runningPrograms.triage.answerTrue', { percent: '30%' })}`);
   });
 });

@@ -5025,6 +5025,9 @@
         "busy": "Сортировка уже выполняется",
         "cancelled": "Сортировка отменена",
         "nothingToJudge": "Сначала проверьте запущенные программы",
+        "invalidQuestions": "Файл вопросов недействителен; исправьте или удалите его, чтобы использовать встроенные вопросы",
+        "invalidExportPath": "Экспорт можно сохранить только в файл .json или .md",
+        "exportFailed": "Не удалось сохранить экспорт",
         "unauthorized": "OpenRouter не принял ключ API",
         "insufficientCredits": "На счёте OpenRouter закончились кредиты",
         "rateLimited": "OpenRouter ограничивает запросы; повторите через минуту",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "Не удалось связаться с OpenRouter",
         "timeout": "OpenRouter отвечал слишком долго",
         "invalidResponse": "OpenRouter прислал ответ, который MangoDisk не может прочитать"
+      },
+      "answerLevel": "уровень {level}",
+      "answerTrue": "{percent}: вероятно, верно",
+      "editQuestions": "Изменить вопросы",
+      "questionsInvalid": "В файле вопросов ошибка; сортировка не запустится, пока его не исправят или не удалят",
+      "exportMarkdown": "Экспорт в Markdown",
+      "exportJson": "Экспорт в JSON",
+      "exportDialogTitle": "Сохранить результаты сортировки",
+      "exportHint": "Каждая программа с данными, которые видела модель, её затратами и ответами — для проверки человеком или другой моделью",
+      "exported": "Сохранено",
+      "showExport": "Показать в папке",
+      "questionSources": {
+        "builtIn": "Вопросы: встроенные",
+        "file": "Вопросы: ваш файл ({count})",
+        "supplied": "Вопросы: заданы на один запуск"
       }
     }
   }

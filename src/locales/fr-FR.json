@@ -5025,6 +5025,9 @@
         "busy": "Un tri est déjà en cours",
         "cancelled": "Le tri a été annulé",
         "nothingToJudge": "Analysez d'abord les programmes en cours",
+        "invalidQuestions": "Le fichier de questions n'est pas valide ; corrigez-le ou retirez-le pour utiliser les questions intégrées",
+        "invalidExportPath": "Les exports ne peuvent être enregistrés qu'en fichiers .json ou .md",
+        "exportFailed": "L'export n'a pas pu être enregistré",
         "unauthorized": "OpenRouter n'a pas accepté la clé API",
         "insufficientCredits": "Votre compte OpenRouter n'a plus de crédits",
         "rateLimited": "OpenRouter limite les requêtes ; réessayez dans une minute",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "Impossible de joindre OpenRouter",
         "timeout": "OpenRouter a mis trop de temps à répondre",
         "invalidResponse": "OpenRouter a envoyé une réponse que MangoDisk n'a pas pu lire"
+      },
+      "answerLevel": "niveau {level}",
+      "answerTrue": "{percent} probablement vrai",
+      "editQuestions": "Modifier les questions",
+      "questionsInvalid": "Votre fichier de questions comporte une erreur ; le tri ne se lancera pas tant qu'il n'est pas corrigé ou retiré",
+      "exportMarkdown": "Exporter en Markdown",
+      "exportJson": "Exporter en JSON",
+      "exportDialogTitle": "Enregistrer l'export du tri",
+      "exportHint": "Chaque programme avec les faits vus par le modèle, ses coûts et les réponses, pour relecture par une personne ou un autre modèle",
+      "exported": "Enregistré",
+      "showExport": "Afficher dans le dossier",
+      "questionSources": {
+        "builtIn": "Questions : intégrées",
+        "file": "Questions : votre fichier ({count})",
+        "supplied": "Questions : fournies pour une exécution"
       }
     }
   }

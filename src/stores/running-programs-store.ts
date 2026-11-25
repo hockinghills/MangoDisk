@@ -12,8 +12,11 @@ import type {
   DecisionErrorCode,
   DecisionSettings,
   ProgramTriage,
+  TriageExportFormat,
+  TriageQuestionsInfo,
   TriageReport,
 } from '@/lib/models/running-programs/triage';
+import { FileManagerService } from '@/lib/services/filesystem/file-manager-service';
 import { RunningProgramsService } from '@/lib/services/running-programs/running-programs-service';
 import { TriageService } from '@/lib/services/running-programs/triage-service';
 import { parseCommandError } from '@/lib/utils/diagnostics/error';
@@ -43,6 +46,11 @@ interface RunningProgramsState {
   triaging: boolean;
   triageError: DecisionErrorCode | null;
   connectDialogOpen: boolean;
+  /** Where the triage questions live and whether that file is usable. */
+  questionsInfo: TriageQuestionsInfo | null;
+  exporting: boolean;
+  exportedPath: string | null;
+  exportError: DecisionErrorCode | null;
 }
 
 export const useRunningProgramsStore = defineStore('running-programs', {
@@ -62,6 +70,10 @@ export const useRunningProgramsStore = defineStore('running-programs', {
     triaging: false,
     triageError: null,
     connectDialogOpen: false,
+    questionsInfo: null,
+    exporting: false,
+    exportedPath: null,
+    exportError: null,
   }),
   getters: {
     triageById(state): Map<string, ProgramTriage> {
@@ -101,6 +113,13 @@ export const useRunningProgramsStore = defineStore('running-programs', {
           });
         }
         this.snapshot = snapshot;
+        // Core drops a triage once its scan is replaced: the answers judged the earlier facts.
+        if (this.triageReport) {
+          this.triageReport = null;
+          if (this.sort === 'leftoverWeight') this.sort = 'memory';
+          if (this.filter === 'leftovers') this.filter = 'all';
+        }
+        this.exportedPath = null;
         if (this.expandedId && !snapshot.programs.some(program => program.id === this.expandedId)) {
           this.expandedId = null;
         }
@@ -166,6 +185,7 @@ export const useRunningProgramsStore = defineStore('running-programs', {
       try {
         const report = await TriageService.triage(null);
         this.triageReport = report;
+        this.exportedPath = null;
         if (this.sort === 'memory') this.sort = 'leftoverWeight';
       } catch (error) {
         const code = TriageService.errorCode(error) ?? 'invalidResponse';
@@ -173,11 +193,48 @@ export const useRunningProgramsStore = defineStore('running-programs', {
         if (code === 'notConfigured' || code === 'unauthorized') this.openConnectDialog();
       } finally {
         this.triaging = false;
+        void this.loadQuestions();
       }
     },
     async cancelTriage() {
       if (!this.triaging) return;
       await TriageService.cancel();
+    },
+    async loadQuestions() {
+      try {
+        this.questionsInfo = await TriageService.questions();
+      } catch (error) {
+        this.questionsInfo = null;
+        LoggerService.warn(LOG_DOMAINS.runningPrograms, 'triage_questions_unavailable', {
+          code: TriageService.errorCode(error),
+        });
+      }
+    },
+    /** Creates the question file from the built-in set if needed and shows it in the file manager. */
+    async editQuestions() {
+      try {
+        const path = await TriageService.createQuestions();
+        await FileManagerService.reveal(path);
+      } catch (error) {
+        useAppStore().reportError(error);
+      }
+      await this.loadQuestions();
+    },
+    async exportTriage(format: TriageExportFormat, dialogTitle: string) {
+      if (this.exporting || !this.snapshot) return;
+      this.exporting = true;
+      this.exportError = null;
+      try {
+        const path = await TriageService.export(format, dialogTitle);
+        if (path) this.exportedPath = path;
+      } catch (error) {
+        this.exportError = TriageService.errorCode(error) ?? 'exportFailed';
+      } finally {
+        this.exporting = false;
+      }
+    },
+    revealExport() {
+      if (this.exportedPath) void FileManagerService.reveal(this.exportedPath).catch(() => undefined);
     },
     toggleExpanded(id: string) {
       this.expandedId = this.expandedId === id ? null : id;

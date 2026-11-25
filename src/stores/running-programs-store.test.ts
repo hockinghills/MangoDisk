@@ -90,6 +90,8 @@ describe('running programs store', () => {
 
     triage.mockResolvedValueOnce({
       model: 'vendor/decider-1',
+      questions: { schemaVersion: 1, questions: [] },
+      questionSource: 'builtIn',
       results: [],
       failures: [],
       inputTokens: 0,
@@ -99,5 +101,28 @@ describe('running programs store', () => {
     await store.triage();
     expect(store.triageError).toBeNull();
     expect(store.sort).toBe('leftoverWeight');
+
+    // A new scan replaces the facts the answers judged, so the triage and its sort go with it.
+    await store.scan(false);
+    expect(store.triageReport).toBeNull();
+    expect(store.sort).toBe('memory');
+  });
+
+  it('exports through the native picker and reports typed failures', async () => {
+    const store = useRunningProgramsStore();
+    vi.spyOn(RunningProgramsService, 'scan').mockResolvedValue(snapshot());
+    await store.scan(false);
+    const exportTriage = vi.spyOn(TriageService, 'export').mockResolvedValueOnce(null);
+    await store.exportTriage('markdown', 'Save');
+    expect(exportTriage).toHaveBeenCalledWith('markdown', 'Save');
+    expect(store.exportedPath).toBeNull();
+
+    exportTriage.mockResolvedValueOnce('/tmp/triage.md');
+    await store.exportTriage('markdown', 'Save');
+    expect(store.exportedPath).toBe('/tmp/triage.md');
+
+    exportTriage.mockRejectedValueOnce('invalidExportPath');
+    await store.exportTriage('json', 'Save');
+    expect(store.exportError).toBe('invalidExportPath');
   });
 });

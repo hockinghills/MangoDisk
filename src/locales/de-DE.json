@@ -5025,6 +5025,9 @@
         "busy": "Es läuft bereits eine Sortierung",
         "cancelled": "Die Sortierung wurde abgebrochen",
         "nothingToJudge": "Prüfen Sie zuerst die laufenden Programme",
+        "invalidQuestions": "Die Fragendatei ist ungültig; korrigieren oder entfernen Sie sie, um die eingebauten Fragen zu nutzen",
+        "invalidExportPath": "Exporte lassen sich nur als .json- oder .md-Datei speichern",
+        "exportFailed": "Der Export konnte nicht gespeichert werden",
         "unauthorized": "OpenRouter hat den API-Schlüssel nicht akzeptiert",
         "insufficientCredits": "Ihr OpenRouter-Konto hat kein Guthaben mehr",
         "rateLimited": "OpenRouter begrenzt Anfragen; in einer Minute erneut versuchen",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "OpenRouter ist nicht erreichbar",
         "timeout": "OpenRouter hat zu lange gebraucht",
         "invalidResponse": "OpenRouter hat eine Antwort gesendet, die MangoDisk nicht lesen konnte"
+      },
+      "answerLevel": "Stufe {level}",
+      "answerTrue": "zu {percent} zutreffend",
+      "editQuestions": "Fragen bearbeiten",
+      "questionsInvalid": "Ihre Fragendatei hat einen Fehler; die Einordnung läuft erst, wenn sie korrigiert oder entfernt ist",
+      "exportMarkdown": "Als Markdown exportieren",
+      "exportJson": "Als JSON exportieren",
+      "exportDialogTitle": "Einordnung exportieren",
+      "exportHint": "Jedes Programm mit den Fakten, die das Modell sah, seinen Kosten und den Antworten, zur Prüfung durch eine Person oder ein anderes Modell",
+      "exported": "Gespeichert",
+      "showExport": "Im Ordner zeigen",
+      "questionSources": {
+        "builtIn": "Fragen: eingebaut",
+        "file": "Fragen: Ihre Datei ({count})",
+        "supplied": "Fragen: für einen Lauf übergeben"
       }
     }
   }

@@ -12,11 +12,13 @@ import MdResultSearch from '@/components/custom/md-result-search.vue';
 import MdResultSummary from '@/components/custom/md-result-summary.vue';
 import MdResultTable from '@/components/custom/md-result-table.vue';
 import MdResultWorkspace from '@/components/custom/md-result-workspace.vue';
+import MdTooltip from '@/components/custom/md-tooltip.vue';
 import MdIcon from '@/components/icons/md-icon.vue';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ICON_NAMES } from '@/lib/models/presentation/ui';
 import type { RunningProgramsFilter, RunningProgramsSort } from '@/lib/models/running-programs/running-programs';
+import type { TriageExportFormat } from '@/lib/models/running-programs/triage';
 import { FormatService } from '@/lib/services/presentation/format-service';
 import { ByteSizeService } from '@/lib/services/settings/byte-size-service';
 import { filterPrograms } from '@/lib/utils/running-programs/running-programs-view';
@@ -40,7 +42,19 @@ const SORTS = computed<readonly RunningProgramsSort[]>(() =>
 
 onMounted(() => {
   if (store.decisionSettings === undefined) void store.loadDecisionSettings();
+  void store.loadQuestions();
 });
+
+const questionsLabel = computed(() => {
+  const info = store.questionsInfo;
+  if (!info) return '';
+  if (info.source === null) return t('runningPrograms.triage.questionsInvalid');
+  return t(`runningPrograms.triage.questionSources.${info.source}`, { count: info.questionCount });
+});
+
+function exportTriage(format: TriageExportFormat) {
+  void store.exportTriage(format, t('runningPrograms.triage.exportDialogTitle'));
+}
 
 const triageSummary = computed(() => {
   const report = store.triageReport;
@@ -180,6 +194,49 @@ function updateSort(value: unknown) {
         <p v-if="store.triageReport && !store.triaging" class="summary-note">
           {{ t('runningPrograms.triage.advisory') }}
         </p>
+        <div class="triage-tools">
+          <span v-if="store.questionsInfo" :class="{ 'triage-error': store.questionsInfo.source === null }">
+            {{ questionsLabel }}
+          </span>
+          <Button size="sm" variant="ghost" type="button" @click="store.editQuestions()">
+            {{ t('runningPrograms.triage.editQuestions') }}
+          </Button>
+          <span class="triage-tools-spacer" />
+          <MdTooltip :text="t('runningPrograms.triage.exportHint')">
+            <span class="triage-export-buttons">
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                :disabled="store.exporting || store.triaging"
+                @click="exportTriage('markdown')"
+              >
+                {{ t('runningPrograms.triage.exportMarkdown') }}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                :disabled="store.exporting || store.triaging"
+                @click="exportTriage('json')"
+              >
+                {{ t('runningPrograms.triage.exportJson') }}
+              </Button>
+            </span>
+          </MdTooltip>
+          <template v-if="store.exportedPath">
+            <span>{{ t('runningPrograms.triage.exported') }}</span>
+            <Button size="sm" variant="ghost" type="button" @click="store.revealExport()">
+              {{ t('runningPrograms.triage.showExport') }}
+            </Button>
+          </template>
+          <span v-if="store.exportError" class="triage-error" role="alert">
+            {{ t(`runningPrograms.triage.errors.${store.exportError}`) }}
+          </span>
+        </div>
+        <p v-if="store.questionsInfo?.problem" class="summary-note">
+          <code class="triage-problem">{{ store.questionsInfo.problem }}</code>
+        </p>
         <MdRunningProgramsBucket
           :programs="snapshot.programs"
           :selected-group="store.originGroup"
@@ -306,6 +363,29 @@ function updateSort(value: unknown) {
 
 .triage-error {
   @apply text-destructive-text;
+}
+
+.triage-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 4px;
+  @apply text-sm text-muted-foreground;
+}
+
+.triage-tools-spacer {
+  flex: 1;
+}
+
+.triage-export-buttons {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.triage-problem {
+  overflow-wrap: anywhere;
+  @apply font-mono text-xs text-destructive-text;
 }
 
 .elevation-problem {

@@ -5025,6 +5025,9 @@
         "busy": "Uma triagem já está em andamento",
         "cancelled": "A triagem foi cancelada",
         "nothingToJudge": "Verifique os programas em execução primeiro",
+        "invalidQuestions": "O arquivo de perguntas não é válido; corrija-o ou remova-o para usar as perguntas integradas",
+        "invalidExportPath": "Exportações só podem ser salvas como arquivos .json ou .md",
+        "exportFailed": "Não foi possível salvar a exportação",
         "unauthorized": "O OpenRouter não aceitou a chave de API",
         "insufficientCredits": "Sua conta do OpenRouter está sem créditos",
         "rateLimited": "O OpenRouter está limitando as solicitações; tente de novo em um minuto",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "Não foi possível acessar o OpenRouter",
         "timeout": "O OpenRouter demorou demais para responder",
         "invalidResponse": "O OpenRouter enviou uma resposta que o MangoDisk não conseguiu ler"
+      },
+      "answerLevel": "nível {level}",
+      "answerTrue": "{percent} provavelmente verdadeiro",
+      "editQuestions": "Editar perguntas",
+      "questionsInvalid": "Seu arquivo de perguntas tem um problema; a triagem não será executada até ele ser corrigido ou removido",
+      "exportMarkdown": "Exportar Markdown",
+      "exportJson": "Exportar JSON",
+      "exportDialogTitle": "Salvar exportação da triagem",
+      "exportHint": "Cada programa com os fatos que o modelo viu, seus custos e as respostas, para revisão por uma pessoa ou outro modelo",
+      "exported": "Salvo",
+      "showExport": "Mostrar na pasta",
+      "questionSources": {
+        "builtIn": "Perguntas: integradas",
+        "file": "Perguntas: seu arquivo ({count})",
+        "supplied": "Perguntas: fornecidas para uma execução"
       }
     }
   }

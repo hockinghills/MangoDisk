@@ -5025,6 +5025,9 @@
         "busy": "Bir ayıklama zaten sürüyor",
         "cancelled": "Ayıklama iptal edildi",
         "nothingToJudge": "Önce çalışan programları tarayın",
+        "invalidQuestions": "Soru dosyası geçerli değil; yerleşik soruları kullanmak için düzeltin veya kaldırın",
+        "invalidExportPath": "Dışa aktarımlar yalnızca .json veya .md dosyası olarak kaydedilebilir",
+        "exportFailed": "Dışa aktarım kaydedilemedi",
         "unauthorized": "OpenRouter API anahtarını kabul etmedi",
         "insufficientCredits": "OpenRouter hesabınızın kredisi bitti",
         "rateLimited": "OpenRouter istekleri sınırlıyor; bir dakika sonra yeniden deneyin",
@@ -5034,6 +5037,21 @@
         "connectionFailed": "OpenRouter'a ulaşılamadı",
         "timeout": "OpenRouter çok geç yanıt verdi",
         "invalidResponse": "OpenRouter, MangoDisk'in okuyamadığı bir yanıt gönderdi"
+      },
+      "answerLevel": "düzey {level}",
+      "answerTrue": "{percent} olasılıkla doğru",
+      "editQuestions": "Soruları düzenle",
+      "questionsInvalid": "Soru dosyanızda bir sorun var; düzeltilene veya kaldırılana kadar sınıflandırma çalışmaz",
+      "exportMarkdown": "Markdown olarak dışa aktar",
+      "exportJson": "JSON olarak dışa aktar",
+      "exportDialogTitle": "Sınıflandırmayı kaydet",
+      "exportHint": "Her program; modelin gördüğü bilgiler, maliyetleri ve yanıtlarla birlikte, bir kişinin veya başka bir modelin incelemesi için",
+      "exported": "Kaydedildi",
+      "showExport": "Klasörde göster",
+      "questionSources": {
+        "builtIn": "Sorular: yerleşik",
+        "file": "Sorular: dosyanız ({count})",
+        "supplied": "Sorular: tek çalıştırma için verildi"
       }
     }
   }

@@ -16,10 +16,20 @@ export function isSideInstall(kind: ProgramOriginKind): boolean {
 /** Judged by a decision model, keyed by program id. */
 export type TriageLookup = ReadonlyMap<string, ProgramTriage>;
 
+/**
+ * The probability of a `leftover` option on the `role` question, built-in or custom, matching
+ * Core's export; `null` when no role question with that option was asked.
+ */
+export function leftoverProbability(result: ProgramTriage): number | null {
+  const answer = result.answers.role;
+  return answer?.type === 'choice' && 'leftover' in answer.probabilities ? answer.probabilities.leftover : null;
+}
+
 /** The footprint a model thinks is leftover: what removing the leftovers would give back. */
 export function leftoverWeightKb(program: RunningProgram, triage: TriageLookup): number | null {
   const result = triage.get(program.id);
-  return result ? programFootprintKb(program) * (result.roleProbabilities.leftover ?? 0) : null;
+  const probability = result ? leftoverProbability(result) : null;
+  return probability === null ? null : programFootprintKb(program) * probability;
 }
 
 function matchesQuery(program: RunningProgram, query: string): boolean {
@@ -39,8 +49,10 @@ function matchesQuery(program: RunningProgram, query: string): boolean {
 
 function matchesFilter(program: RunningProgram, filter: RunningProgramsFilter, triage: TriageLookup): boolean {
   switch (filter) {
-    case 'leftovers':
-      return triage.get(program.id)?.role === 'leftover';
+    case 'leftovers': {
+      const answer = triage.get(program.id)?.answers.role;
+      return answer?.type === 'choice' && answer.choice === 'leftover';
+    }
     case 'sideInstalled':
       return isSideInstall(program.origin.kind);
     case 'yours':

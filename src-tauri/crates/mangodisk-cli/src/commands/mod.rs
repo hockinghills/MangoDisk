@@ -1,4 +1,5 @@
 mod clean;
+mod running_programs;
 
 use crate::{
     arguments::{Command, OutputFormat},
@@ -69,5 +70,6 @@ pub fn dispatch(
 ) -> Result<CommandOutcome, CliFailure> {
     match command {
         Command::Clean(arguments) => clean::run(arguments, context),
+        Command::RunningPrograms(command) => running_programs::run(command, context),
     }
 }

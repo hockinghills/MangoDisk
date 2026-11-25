@@ -238,6 +238,7 @@ const dynamicKeyGroups = {
   ],
   'runningPrograms.triage.roles': ['desktop', 'needed', 'tool', 'leftover', 'unclear'],
   'runningPrograms.triage.missLevels': ['0', '1', '2', '3', '4'],
+  'runningPrograms.triage.questionSources': ['builtIn', 'file', 'supplied'],
   'runningPrograms.triage.errors': [
     'notConfigured',
     'invalidConfiguration',
@@ -245,6 +246,9 @@ const dynamicKeyGroups = {
     'busy',
     'cancelled',
     'nothingToJudge',
+    'invalidQuestions',
+    'invalidExportPath',
+    'exportFailed',
     'unauthorized',
     'insufficientCredits',
     'rateLimited',
