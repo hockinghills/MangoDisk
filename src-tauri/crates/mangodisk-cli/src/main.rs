@@ -17,6 +17,14 @@ use output::{write_error, write_outcome};
 use progress::CancellationController;
 
 fn main() -> std::process::ExitCode {
+    // An administrator-rights scan relaunches this executable through pkexec to read process
+    // facts, so the CLI must answer that call before parsing its own arguments.
+    #[cfg(target_os = "linux")]
+    if let Some(code) =
+        mangodisk_platform::linux::run_running_programs_helper_mode(std::env::args_os())
+    {
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     env_logger::Builder::from_env(env_logger::Env::new().filter_or("MANGODISK_LOG", "error"))
         .target(env_logger::Target::Stderr)
         .format_timestamp_millis()
