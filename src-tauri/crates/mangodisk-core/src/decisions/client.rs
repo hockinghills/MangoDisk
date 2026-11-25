@@ -72,7 +72,8 @@ pub(super) fn status_error(status: u16) -> DecisionError {
         401 | 403 => DecisionError::Unauthorized,
         402 => DecisionError::InsufficientCredits,
         429 => DecisionError::RateLimited,
-        400 | 404 | 413 => DecisionError::ModelUnavailable,
+        404 => DecisionError::ModelUnavailable,
+        400 | 413 | 422 => DecisionError::RequestRejected,
         _ => DecisionError::ProviderUnavailable,
     }
 }
@@ -197,8 +198,28 @@ pub(crate) async fn decide<B: Serialize>(
         .map_err(|error| network_error(&error))?;
     let status = response.status().as_u16();
     if !(200..300).contains(&status) {
+        // The provider's own message is the only explanation of a rejected request; keep a
+        // bounded, escaped excerpt. It never contains the key, which is sent only as a header.
+        let reason = read_bounded(response, 16 * 1024)
+            .await
+            .ok()
+            .and_then(|body| serde_json::from_slice::<Value>(&body).ok())
+            .and_then(|value| {
+                value
+                    .pointer("/error/message")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .map(|message| {
+                message
+                    .chars()
+                    .take(300)
+                    .flat_map(char::escape_debug)
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
         log::warn!(
-            "decision_request_failed status={status} model={:?}",
+            "decision_request_failed status={status} model={:?} reason=\"{reason}\"",
             configuration.model
         );
         return Err(status_error(status));
@@ -328,6 +349,7 @@ mod tests {
         assert_eq!(status_error(402), DecisionError::InsufficientCredits);
         assert_eq!(status_error(429), DecisionError::RateLimited);
         assert_eq!(status_error(404), DecisionError::ModelUnavailable);
+        assert_eq!(status_error(400), DecisionError::RequestRejected);
         assert_eq!(status_error(529), DecisionError::ProviderUnavailable);
     }
 

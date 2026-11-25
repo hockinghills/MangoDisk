@@ -4744,14 +4744,16 @@
       "all": "Tous",
       "sideInstalled": "Installés à côté",
       "yours": "Ajoutés par vous",
-      "quiet": "Calmes depuis le lancement"
+      "quiet": "Calmes depuis le lancement",
+      "leftovers": "Restes probables"
     },
     "sorts": {
       "memory": "Mémoire + swap",
       "cpuNow": "CPU actuel",
       "cpuAverage": "CPU depuis le lancement",
       "installed": "Installations récentes",
-      "name": "Nom"
+      "name": "Nom",
+      "leftoverWeight": "Poids des restes probables"
     },
     "summary": {
       "programs": "{programs} programmes, {processes} processus",
@@ -4900,7 +4902,8 @@
         "addedToHome": "Fichier de service {path} (dans votre dossier personnel)",
         "generated": "Fichier de service {path} (généré)",
         "unknown": "Fichier de service {path}"
-      }
+      },
+      "essentialPackage": "La distribution considère ce paquet comme faisant partie de tout système"
     },
     "detail": {
       "origin": "Installé via",
@@ -4925,7 +4928,10 @@
       "executableReplaced": "Son fichier programme a été remplacé ou supprimé après son lancement ; le redémarrer applique la mise à jour",
       "memoryNote": "Mémoire",
       "memoryResidentNote": "Affiche la mémoire résidente, qui compte les bibliothèques partagées dans chaque processus ; la mémoire proportionnelle des processus d'autres utilisateurs nécessite des droits administrateur",
-      "rendererHint": "L'application n'indique pas quel onglet ou quelle fenêtre sert un processus de rendu. Dans Chrome ou Chromium, appuyez sur Maj+Échap pour ouvrir le Gestionnaire de tâches, qui liste chaque onglet avec son ID de processus ; comparez-le à la colonne PID ici"
+      "rendererHint": "L'application n'indique pas quel onglet ou quelle fenêtre sert un processus de rendu. Dans Chrome ou Chromium, appuyez sur Maj+Échap pour ouvrir le Gestionnaire de tâches, qui liste chaque onglet avec son ID de processus ; comparez-le à la colonne PID ici",
+      "description": "Se décrit comme",
+      "requiredBy": "Requis par",
+      "requiredByCount": "{count} paquets installés"
     },
     "processes": {
       "pid": "PID",
@@ -4953,6 +4959,82 @@
       "explanation": "Les droits administrateur permettent de lire le fichier programme, la mémoire et le dossier de travail des processus de root et des autres utilisateurs. Le bureau demande votre mot de passe ; l'analyse ne fait que lire",
       "denied": "L'autorisation administrateur a échoué, rien n'a été analysé",
       "unavailable": "Les droits administrateur nécessitent pkexec, du paquet polkit, qui n'est pas installé"
+    },
+    "bucket": {
+      "title": "Tout sauf les composants essentiels :",
+      "headline": "{count} programmes occupent {footprint} de mémoire et de swap et utilisent en moyenne {cpu} d'un cœur",
+      "small": "{count} d'entre eux occupent moins de {threshold} chacun, et ensemble {footprint}",
+      "groupsLabel": "Poids par mode d'installation"
+    },
+    "originGroups": {
+      "distro": "Paquets de la distribution",
+      "python": "Python",
+      "node": "Node.js",
+      "sandboxed": "Flatpak, Snap et AppImage",
+      "containers": "Conteneurs",
+      "toolchains": "Homebrew, Cargo, Go et Nix",
+      "projects": "Projets et clones git",
+      "manual": "Installations manuelles",
+      "services": "Services que vous avez ajoutés",
+      "unknown": "Inconnu"
+    },
+    "triage": {
+      "run": "Trier avec un modèle de décision",
+      "rerun": "Trier à nouveau",
+      "running": "Interrogation de {model} sur chaque programme",
+      "cancel": "Annuler",
+      "judged": "{model} a évalué {count} programmes",
+      "cost": "coût ${cost}",
+      "failedCount": "{count} n'ont pas pu être évalués",
+      "changeModel": "Changer de modèle",
+      "advisory": "Ces étiquettes sont la lecture des faits ci-dessus par un modèle, pas des vérifications ; rien n'est arrêté ni supprimé",
+      "connectTitle": "Connecter un modèle de décision",
+      "connectDescription": "Les modèles de décision notent des réponses fixes au lieu d'écrire du texte : chaque programme coûte une fraction de centime. MangoDisk utilise l'API Decisions d'OpenRouter avec votre propre clé",
+      "apiKey": "Clé API OpenRouter",
+      "apiKeySaved": "Une clé est enregistrée ; laissez vide pour la conserver",
+      "apiKeyPlaceholder": "sk-or-…",
+      "model": "Modèle",
+      "loadingModels": "Chargement des modèles depuis OpenRouter",
+      "chooseModel": "Choisissez un modèle",
+      "pricePerMillion": "${price} par million de jetons d'entrée",
+      "privacyNote": "Pour chaque programme qui n'est pas un composant essentiel, MangoDisk envoie son nom, son paquet, sa description, comment et quand il a été installé, ce qui le lance et combien de paquets en dépendent. Les lignes de commande, le contenu des dossiers et la consommation ne sont pas envoyés",
+      "disconnect": "Supprimer la connexion",
+      "save": "Enregistrer",
+      "chipHint": "La lecture de ce programme par un modèle de décision ; dépliez pour les détails",
+      "detailTitle": "Modèle de décision",
+      "missPrefix": "S'il s'arrêtait :",
+      "ordersDisagree": "La réponse a changé quand les options étaient présentées dans un autre ordre ; à prendre avec prudence",
+      "roles": {
+        "desktop": "Partie du bureau",
+        "needed": "Requis par autre chose",
+        "tool": "Outil utilisé",
+        "leftover": "Reste",
+        "unclear": "Impossible à dire"
+      },
+      "missLevels": {
+        "0": "Rien de ce qui est utilisé ne changerait",
+        "1": "Une fonction secondaire ou rare s'arrêterait",
+        "2": "Une fonction utilisée régulièrement ne marcherait plus",
+        "3": "Quelque chose d'utilisé chaque jour casserait",
+        "4": "Le bureau ou le système cesserait de fonctionner"
+      },
+      "errors": {
+        "notConfigured": "Connectez d'abord un modèle de décision",
+        "invalidConfiguration": "Les réglages du modèle de décision ne sont pas valides",
+        "configurationUnavailable": "Impossible de lire ou d'enregistrer les réglages du modèle de décision",
+        "busy": "Un tri est déjà en cours",
+        "cancelled": "Le tri a été annulé",
+        "nothingToJudge": "Analysez d'abord les programmes en cours",
+        "unauthorized": "OpenRouter n'a pas accepté la clé API",
+        "insufficientCredits": "Votre compte OpenRouter n'a plus de crédits",
+        "rateLimited": "OpenRouter limite les requêtes ; réessayez dans une minute",
+        "modelUnavailable": "Le modèle choisi n'est pas disponible ; choisissez-en un autre",
+        "requestRejected": "OpenRouter a refusé la requête ; l'API Decisions a peut-être changé, consultez le journal",
+        "providerUnavailable": "Le fournisseur du modèle ne répond pas ; réessayez plus tard",
+        "connectionFailed": "Impossible de joindre OpenRouter",
+        "timeout": "OpenRouter a mis trop de temps à répondre",
+        "invalidResponse": "OpenRouter a envoyé une réponse que MangoDisk n'a pas pu lire"
+      }
     }
   }
 }

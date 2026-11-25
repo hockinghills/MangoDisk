@@ -21,6 +21,8 @@ function program(overrides: Partial<RunningProgram> & { name: string }): Running
       installCommand: null,
       installBurst: false,
       container: null,
+      description: null,
+      requiredByCount: null,
       facts: [],
     },
     safety: 'system',
@@ -75,5 +77,49 @@ describe('running-programs view', () => {
     expect(cpuPercentText(0.04)).toBe('0.0%');
     expect(cpuPercentText(4.25)).toBe('4.3%');
     expect(cpuPercentText(51.6)).toBe('52%');
+  });
+});
+
+describe('triage-aware view', () => {
+  const big = program({ name: 'big', memoryKb: 1000 });
+  const small = program({ name: 'small', memoryKb: 100 });
+  const unjudged = program({ name: 'unjudged', memoryKb: 5000 });
+  const triage = new Map([
+    [
+      'big',
+      {
+        programId: 'big',
+        role: 'tool' as const,
+        roleProbabilities: { tool: 0.9, leftover: 0.1 },
+        confidence: 0.9,
+        missLevel: 2,
+        missProbabilities: [],
+        ordersAgree: true,
+      },
+    ],
+    [
+      'small',
+      {
+        programId: 'small',
+        role: 'leftover' as const,
+        roleProbabilities: { leftover: 0.95 },
+        confidence: 0.95,
+        missLevel: 0,
+        missProbabilities: [],
+        ordersAgree: true,
+      },
+    ],
+  ]);
+
+  it('filters to programs the model calls leftovers', () => {
+    expect(filterPrograms([big, small, unjudged], 'leftovers', '', null, triage)).toEqual([small]);
+  });
+
+  it('sorts by footprint weighted by leftover probability, unjudged last', () => {
+    expect(sortPrograms([unjudged, big, small], 'leftoverWeight', triage).map(item => item.name)).toEqual([
+      'big',
+      'small',
+      'unjudged',
+    ]);
   });
 });

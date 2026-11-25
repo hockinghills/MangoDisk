@@ -4744,14 +4744,16 @@
       "all": "Todos",
       "sideInstalled": "Instalado por fora",
       "yours": "Adicionado por você",
-      "quiet": "Quieto desde o início"
+      "quiet": "Quieto desde o início",
+      "leftovers": "Prováveis sobras"
     },
     "sorts": {
       "memory": "Memória + swap",
       "cpuNow": "CPU agora",
       "cpuAverage": "CPU desde o início",
       "installed": "Instalações mais recentes",
-      "name": "Nome"
+      "name": "Nome",
+      "leftoverWeight": "Peso das prováveis sobras"
     },
     "summary": {
       "programs": "{programs} programas, {processes} processos",
@@ -4900,7 +4902,8 @@
         "addedToHome": "Arquivo de serviço {path} (na sua pasta pessoal)",
         "generated": "Arquivo de serviço {path} (gerado)",
         "unknown": "Arquivo de serviço {path}"
-      }
+      },
+      "essentialPackage": "A distribuição trata este pacote como parte de qualquer sistema"
     },
     "detail": {
       "origin": "Instalado como",
@@ -4925,7 +4928,10 @@
       "executableReplaced": "O arquivo do programa foi substituído ou apagado depois que ele iniciou; reiniciá-lo aplica a atualização",
       "memoryNote": "Memória",
       "memoryResidentNote": "Mostra a memória residente, que conta bibliotecas compartilhadas em cada processo; a memória proporcional de processos de outros usuários exige direitos de administrador",
-      "rendererHint": "O app não informa qual aba ou janela um renderizador atende. No Chrome ou Chromium, pressione Shift+Esc para abrir o Gerenciador de tarefas, que lista cada aba com o ID do processo; compare esse ID com a coluna PID aqui"
+      "rendererHint": "O app não informa qual aba ou janela um renderizador atende. No Chrome ou Chromium, pressione Shift+Esc para abrir o Gerenciador de tarefas, que lista cada aba com o ID do processo; compare esse ID com a coluna PID aqui",
+      "description": "Descreve-se como",
+      "requiredBy": "Necessário para",
+      "requiredByCount": "{count} pacotes instalados"
     },
     "processes": {
       "pid": "PID",
@@ -4953,6 +4959,82 @@
       "explanation": "Os direitos de administrador permitem ler o arquivo do programa, a memória e a pasta de trabalho dos processos do root e de outros usuários. A área de trabalho pede sua senha; a verificação só faz leitura",
       "denied": "A autorização de administrador falhou, então nada foi verificado",
       "unavailable": "Os direitos de administrador precisam do pkexec, do pacote polkit, que não está instalado"
+    },
+    "bucket": {
+      "title": "Tudo exceto componentes essenciais:",
+      "headline": "{count} programas ocupam {footprint} de memória e swap e usam em média {cpu} de um núcleo",
+      "small": "{count} deles ocupam menos de {threshold} cada e, juntos, {footprint}",
+      "groupsLabel": "Peso por forma de instalação"
+    },
+    "originGroups": {
+      "distro": "Pacotes da distribuição",
+      "python": "Python",
+      "node": "Node.js",
+      "sandboxed": "Flatpak, Snap e AppImage",
+      "containers": "Contêineres",
+      "toolchains": "Homebrew, Cargo, Go e Nix",
+      "projects": "Projetos e clones git",
+      "manual": "Instalações manuais",
+      "services": "Serviços que você adicionou",
+      "unknown": "Desconhecido"
+    },
+    "triage": {
+      "run": "Triar com um modelo de decisão",
+      "rerun": "Triar novamente",
+      "running": "Perguntando ao {model} sobre cada programa",
+      "cancel": "Cancelar",
+      "judged": "{model} avaliou {count} programas",
+      "cost": "custo ${cost}",
+      "failedCount": "{count} não puderam ser avaliados",
+      "changeModel": "Trocar modelo",
+      "advisory": "Estes rótulos são a leitura do modelo sobre os fatos acima, não verificações; nada é parado ou removido",
+      "connectTitle": "Conectar um modelo de decisão",
+      "connectDescription": "Modelos de decisão pontuam respostas fixas em vez de escrever texto, então cada programa custa uma fração de centavo. O MangoDisk usa a Decisions API do OpenRouter com sua própria chave",
+      "apiKey": "Chave de API do OpenRouter",
+      "apiKeySaved": "Há uma chave salva; deixe vazio para mantê-la",
+      "apiKeyPlaceholder": "sk-or-…",
+      "model": "Modelo",
+      "loadingModels": "Carregando modelos do OpenRouter",
+      "chooseModel": "Escolha um modelo",
+      "pricePerMillion": "${price} por milhão de tokens de entrada",
+      "privacyNote": "Para cada programa que não é um componente essencial, o MangoDisk envia nome, pacote, descrição, como e quando foi instalado, o que o inicia e quantos pacotes dependem dele. Linhas de comando, conteúdo de pastas e consumo não são enviados",
+      "disconnect": "Remover conexão",
+      "save": "Salvar",
+      "chipHint": "A leitura deste programa feita por um modelo de decisão; expanda para detalhes",
+      "detailTitle": "Modelo de decisão",
+      "missPrefix": "Se parasse:",
+      "ordersDisagree": "A resposta mudou quando as opções foram mostradas em outra ordem; trate com cautela",
+      "roles": {
+        "desktop": "Parte da área de trabalho",
+        "needed": "Necessário para algo",
+        "tool": "Ferramenta em uso",
+        "leftover": "Sobra",
+        "unclear": "Não dá para saber"
+      },
+      "missLevels": {
+        "0": "Nada que se usa mudaria",
+        "1": "Um recurso secundário ou pouco usado pararia",
+        "2": "Um recurso de uso frequente deixaria de funcionar",
+        "3": "Algo usado todo dia quebraria",
+        "4": "A área de trabalho ou o sistema pararia"
+      },
+      "errors": {
+        "notConfigured": "Conecte um modelo de decisão primeiro",
+        "invalidConfiguration": "As configurações do modelo de decisão são inválidas",
+        "configurationUnavailable": "Não foi possível ler ou salvar as configurações do modelo de decisão",
+        "busy": "Uma triagem já está em andamento",
+        "cancelled": "A triagem foi cancelada",
+        "nothingToJudge": "Verifique os programas em execução primeiro",
+        "unauthorized": "O OpenRouter não aceitou a chave de API",
+        "insufficientCredits": "Sua conta do OpenRouter está sem créditos",
+        "rateLimited": "O OpenRouter está limitando as solicitações; tente de novo em um minuto",
+        "modelUnavailable": "O modelo escolhido não está disponível; escolha outro",
+        "requestRejected": "O OpenRouter rejeitou a solicitação; a Decisions API pode ter mudado, veja o log",
+        "providerUnavailable": "O provedor do modelo não está respondendo; tente mais tarde",
+        "connectionFailed": "Não foi possível acessar o OpenRouter",
+        "timeout": "O OpenRouter demorou demais para responder",
+        "invalidResponse": "O OpenRouter enviou uma resposta que o MangoDisk não conseguiu ler"
+      }
     }
   }
 }

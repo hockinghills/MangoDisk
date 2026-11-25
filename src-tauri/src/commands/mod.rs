@@ -5,6 +5,7 @@ pub(crate) mod app_updates;
 pub(crate) mod application_restart;
 pub(crate) mod applications;
 pub(crate) mod cleanup;
+pub(crate) mod decisions;
 pub(crate) mod duplicate_files;
 pub(crate) mod error;
 pub(crate) mod explorer_integration;

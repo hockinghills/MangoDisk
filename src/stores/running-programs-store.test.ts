@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RunningProgramsSnapshot } from '@/lib/models/running-programs/running-programs';
 import { RunningProgramsService } from '@/lib/services/running-programs/running-programs-service';
+import { TriageService } from '@/lib/services/running-programs/triage-service';
 
 import { useRunningProgramsStore } from './running-programs-store';
 
@@ -68,5 +69,35 @@ describe('running programs store', () => {
     expect(store.elevationProblem).toBe('unavailable');
     await store.scan();
     expect(scan.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('asks to connect a model before triage, then reports typed failures', async () => {
+    const store = useRunningProgramsStore();
+    vi.spyOn(RunningProgramsService, 'scan').mockResolvedValue(snapshot());
+    await store.scan(false);
+    const triage = vi.spyOn(TriageService, 'triage');
+    store.decisionSettings = null;
+    await store.triage();
+    expect(store.connectDialogOpen).toBe(true);
+    expect(triage).not.toHaveBeenCalled();
+
+    store.decisionSettingsSaved({ endpoint: 'https://openrouter.ai/api', model: 'vendor/decider', hasApiKey: true });
+    store.closeConnectDialog();
+    triage.mockRejectedValueOnce('insufficientCredits');
+    await store.triage();
+    expect(store.triageError).toBe('insufficientCredits');
+    expect(store.connectDialogOpen).toBe(false);
+
+    triage.mockResolvedValueOnce({
+      model: 'vendor/decider-1',
+      results: [],
+      failures: [],
+      inputTokens: 0,
+      costUsd: 0,
+      elapsedMs: 1,
+    });
+    await store.triage();
+    expect(store.triageError).toBeNull();
+    expect(store.sort).toBe('leftoverWeight');
   });
 });

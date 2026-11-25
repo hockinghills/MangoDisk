@@ -4744,14 +4744,16 @@
       "all": "Alle",
       "sideInstalled": "Nebenher installiert",
       "yours": "Von Ihnen hinzugefügt",
-      "quiet": "Seit dem Start ruhig"
+      "quiet": "Seit dem Start ruhig",
+      "leftovers": "Wahrscheinliche Überbleibsel"
     },
     "sorts": {
       "memory": "Speicher + Swap",
       "cpuNow": "CPU aktuell",
       "cpuAverage": "CPU seit Start",
       "installed": "Neueste Installationen",
-      "name": "Name"
+      "name": "Name",
+      "leftoverWeight": "Gewicht wahrscheinlicher Überbleibsel"
     },
     "summary": {
       "programs": "{programs} Programme, {processes} Prozesse",
@@ -4900,7 +4902,8 @@
         "addedToHome": "Dienstdatei {path} (in Ihrem Home-Ordner)",
         "generated": "Dienstdatei {path} (erzeugt)",
         "unknown": "Dienstdatei {path}"
-      }
+      },
+      "essentialPackage": "Die Distribution behandelt dieses Paket als Teil jedes Systems"
     },
     "detail": {
       "origin": "Installiert als",
@@ -4925,7 +4928,10 @@
       "executableReplaced": "Die Programmdatei wurde nach dem Start ersetzt oder gelöscht; ein Neustart übernimmt das Update",
       "memoryNote": "Speicher",
       "memoryResidentNote": "Zeigt residenten Speicher, der gemeinsame Bibliotheken in jedem Prozess zählt; proportionaler Speicher fremder Prozesse erfordert Administratorrechte",
-      "rendererHint": "Die App verrät nicht, welchen Tab oder welches Fenster ein Darstellungsprozess bedient. Drücken Sie in Chrome oder Chromium Umschalt+Esc, um den Task-Manager zu öffnen; er listet jeden Tab mit seiner Prozess-ID. Gleichen Sie die ID mit der PID-Spalte hier ab"
+      "rendererHint": "Die App verrät nicht, welchen Tab oder welches Fenster ein Darstellungsprozess bedient. Drücken Sie in Chrome oder Chromium Umschalt+Esc, um den Task-Manager zu öffnen; er listet jeden Tab mit seiner Prozess-ID. Gleichen Sie die ID mit der PID-Spalte hier ab",
+      "description": "Beschreibt sich als",
+      "requiredBy": "Benötigt von",
+      "requiredByCount": "{count} installierten Paketen"
     },
     "processes": {
       "pid": "PID",
@@ -4953,6 +4959,82 @@
       "explanation": "Mit Administratorrechten liest die Prüfung Programmdatei, Speicher und Arbeitsordner der Prozesse von root und anderen Benutzern. Der Desktop fragt nach Ihrem Passwort; die Prüfung liest nur",
       "denied": "Die Administrator-Autorisierung ist fehlgeschlagen, es wurde nichts geprüft",
       "unavailable": "Administratorrechte benötigen pkexec aus dem Paket polkit, das nicht installiert ist"
+    },
+    "bucket": {
+      "title": "Alles außer Kernkomponenten:",
+      "headline": "{count} Programme belegen {footprint} Speicher und Swap und nutzen im Schnitt {cpu} eines Kerns",
+      "small": "{count} davon belegen jeweils weniger als {threshold}, zusammen {footprint}",
+      "groupsLabel": "Gewicht nach Installationsweg"
+    },
+    "originGroups": {
+      "distro": "Distributionspakete",
+      "python": "Python",
+      "node": "Node.js",
+      "sandboxed": "Flatpak, Snap und AppImage",
+      "containers": "Container",
+      "toolchains": "Homebrew, Cargo, Go und Nix",
+      "projects": "Projekte und git-Klone",
+      "manual": "Manuelle Installationen",
+      "services": "Von Ihnen hinzugefügte Dienste",
+      "unknown": "Unbekannt"
+    },
+    "triage": {
+      "run": "Mit einem Entscheidungsmodell sortieren",
+      "rerun": "Erneut sortieren",
+      "running": "{model} wird zu jedem Programm befragt",
+      "cancel": "Abbrechen",
+      "judged": "{model} hat {count} Programme bewertet",
+      "cost": "Kosten ${cost}",
+      "failedCount": "{count} konnten nicht bewertet werden",
+      "changeModel": "Modell wechseln",
+      "advisory": "Diese Etiketten sind die Lesart eines Modells zu den Fakten oben, keine Prüfungen; nichts wird beendet oder entfernt",
+      "connectTitle": "Entscheidungsmodell verbinden",
+      "connectDescription": "Entscheidungsmodelle bewerten feste Antworten, statt Text zu schreiben, daher kostet ein Programm Bruchteile eines Cents. MangoDisk nutzt die Decisions API von OpenRouter mit Ihrem eigenen Schlüssel",
+      "apiKey": "OpenRouter-API-Schlüssel",
+      "apiKeySaved": "Ein Schlüssel ist gespeichert; leer lassen, um ihn zu behalten",
+      "apiKeyPlaceholder": "sk-or-…",
+      "model": "Modell",
+      "loadingModels": "Modelle werden von OpenRouter geladen",
+      "chooseModel": "Modell wählen",
+      "pricePerMillion": "${price} pro Million Eingabe-Tokens",
+      "privacyNote": "Für jedes Programm, das keine Kernkomponente ist, sendet MangoDisk Name, Paket, Beschreibung, wie und wann es installiert wurde, was es startet und wie viele Pakete es benötigen. Befehlszeilen, Ordnerinhalte und Verbrauch werden nicht gesendet",
+      "disconnect": "Verbindung entfernen",
+      "save": "Speichern",
+      "chipHint": "Die Lesart eines Entscheidungsmodells zu diesem Programm; für Details aufklappen",
+      "detailTitle": "Entscheidungsmodell",
+      "missPrefix": "Wenn es stoppt:",
+      "ordersDisagree": "Die Antwort änderte sich bei anderer Reihenfolge der Optionen; mit Vorsicht betrachten",
+      "roles": {
+        "desktop": "Teil des Desktops",
+        "needed": "Von etwas benötigt",
+        "tool": "Genutztes Werkzeug",
+        "leftover": "Überbleibsel",
+        "unclear": "Unklar"
+      },
+      "missLevels": {
+        "0": "Nichts Genutztes würde sich ändern",
+        "1": "Eine Neben- oder selten genutzte Funktion würde stoppen",
+        "2": "Eine regelmäßig genutzte Funktion würde nicht mehr gehen",
+        "3": "Etwas täglich Genutztes würde kaputtgehen",
+        "4": "Desktop oder System würde nicht mehr funktionieren"
+      },
+      "errors": {
+        "notConfigured": "Verbinden Sie zuerst ein Entscheidungsmodell",
+        "invalidConfiguration": "Die Einstellungen des Entscheidungsmodells sind ungültig",
+        "configurationUnavailable": "Die Einstellungen des Entscheidungsmodells konnten nicht gelesen oder gespeichert werden",
+        "busy": "Es läuft bereits eine Sortierung",
+        "cancelled": "Die Sortierung wurde abgebrochen",
+        "nothingToJudge": "Prüfen Sie zuerst die laufenden Programme",
+        "unauthorized": "OpenRouter hat den API-Schlüssel nicht akzeptiert",
+        "insufficientCredits": "Ihr OpenRouter-Konto hat kein Guthaben mehr",
+        "rateLimited": "OpenRouter begrenzt Anfragen; in einer Minute erneut versuchen",
+        "modelUnavailable": "Das gewählte Modell ist nicht verfügbar; wählen Sie ein anderes",
+        "requestRejected": "OpenRouter hat die Anfrage abgelehnt; die Decisions API hat sich vielleicht geändert, siehe Protokoll",
+        "providerUnavailable": "Der Modellanbieter antwortet nicht; später erneut versuchen",
+        "connectionFailed": "OpenRouter ist nicht erreichbar",
+        "timeout": "OpenRouter hat zu lange gebraucht",
+        "invalidResponse": "OpenRouter hat eine Antwort gesendet, die MangoDisk nicht lesen konnte"
+      }
     }
   }
 }

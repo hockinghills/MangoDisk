@@ -4744,14 +4744,16 @@
       "all": "All",
       "sideInstalled": "Side-installed",
       "yours": "Added by you",
-      "quiet": "Quiet since start"
+      "quiet": "Quiet since start",
+      "leftovers": "Likely leftovers"
     },
     "sorts": {
       "memory": "Memory + swap",
       "cpuNow": "CPU now",
       "cpuAverage": "CPU since start",
       "installed": "Newest installs",
-      "name": "Name"
+      "name": "Name",
+      "leftoverWeight": "Likely leftover weight"
     },
     "summary": {
       "programs": "{programs} programs, {processes} processes",
@@ -4900,7 +4902,8 @@
         "addedToHome": "Service file {path} (in your home folder)",
         "generated": "Service file {path} (generated)",
         "unknown": "Service file {path}"
-      }
+      },
+      "essentialPackage": "The distribution treats this package as part of every system"
     },
     "detail": {
       "origin": "Installed as",
@@ -4925,7 +4928,10 @@
       "executableReplaced": "Its program file was replaced or deleted after it started; restarting it picks up the update",
       "memoryNote": "Memory",
       "memoryResidentNote": "Shows resident memory, which counts shared libraries once per process; proportional memory needs administrator rights for other users' processes",
-      "rendererHint": "The app does not say which tab or window a renderer serves. In Chrome or Chromium, press Shift+Esc to open its Task manager, which lists each tab with its process ID; match the ID to the PID column here"
+      "rendererHint": "The app does not say which tab or window a renderer serves. In Chrome or Chromium, press Shift+Esc to open its Task manager, which lists each tab with its process ID; match the ID to the PID column here",
+      "description": "Describes itself as",
+      "requiredBy": "Needed by",
+      "requiredByCount": "{count} installed packages"
     },
     "processes": {
       "pid": "PID",
@@ -4953,6 +4959,82 @@
       "explanation": "Administrator rights let the scan read the program file, memory and working folder of processes owned by root and other users. Your desktop asks for your password; the scan only reads",
       "denied": "Administrator authorization failed, so nothing was scanned",
       "unavailable": "Administrator rights need pkexec from the polkit package, which is not installed"
+    },
+    "bucket": {
+      "title": "Everything except core components:",
+      "headline": "{count} programs hold {footprint} of memory and swap and use {cpu} of a core on average",
+      "small": "{count} of them hold under {threshold} each, and together {footprint}",
+      "groupsLabel": "Weight by install method"
+    },
+    "originGroups": {
+      "distro": "Distro packages",
+      "python": "Python",
+      "node": "Node.js",
+      "sandboxed": "Flatpak, Snap and AppImage",
+      "containers": "Containers",
+      "toolchains": "Homebrew, Cargo, Go and Nix",
+      "projects": "Projects and git clones",
+      "manual": "Manual installs",
+      "services": "Services you added",
+      "unknown": "Unknown"
+    },
+    "triage": {
+      "run": "Triage with a decision model",
+      "rerun": "Triage again",
+      "running": "Asking {model} about each program",
+      "cancel": "Cancel",
+      "judged": "{model} judged {count} programs",
+      "cost": "cost ${cost}",
+      "failedCount": "{count} could not be judged",
+      "changeModel": "Change model",
+      "advisory": "These labels are a model's reading of the facts above, not checks; nothing is stopped or removed",
+      "connectTitle": "Connect a decision model",
+      "connectDescription": "Decision models score fixed answers instead of writing text, so each program costs a fraction of a cent. MangoDisk uses OpenRouter's Decisions API with your own key",
+      "apiKey": "OpenRouter API key",
+      "apiKeySaved": "A key is saved; leave empty to keep it",
+      "apiKeyPlaceholder": "sk-or-…",
+      "model": "Model",
+      "loadingModels": "Loading models from OpenRouter",
+      "chooseModel": "Choose a model",
+      "pricePerMillion": "${price} per million input tokens",
+      "privacyNote": "For each program that is not a core component, MangoDisk sends its name, package, description, how and when it was installed, what starts it and how many packages need it. Command lines, folder contents and costs are not sent",
+      "disconnect": "Remove connection",
+      "save": "Save",
+      "chipHint": "A decision model's reading of this program; expand for details",
+      "detailTitle": "Decision model",
+      "missPrefix": "If it stopped:",
+      "ordersDisagree": "The answer changed when the options were shown in a different order, so treat it with care",
+      "roles": {
+        "desktop": "Part of the desktop",
+        "needed": "Needed by something",
+        "tool": "A tool in use",
+        "leftover": "Leftover",
+        "unclear": "Can't tell"
+      },
+      "missLevels": {
+        "0": "Nothing anyone uses would change",
+        "1": "A minor or rarely used feature would stop",
+        "2": "A feature in regular use would stop working",
+        "3": "Something used every day would break",
+        "4": "The desktop or system would stop working"
+      },
+      "errors": {
+        "notConfigured": "Connect a decision model first",
+        "invalidConfiguration": "The decision model settings are not valid",
+        "configurationUnavailable": "The decision model settings could not be read or saved",
+        "busy": "A triage is already running",
+        "cancelled": "Triage was cancelled",
+        "nothingToJudge": "Scan running programs first",
+        "unauthorized": "OpenRouter did not accept the API key",
+        "insufficientCredits": "Your OpenRouter account is out of credits",
+        "rateLimited": "OpenRouter is limiting requests; try again in a minute",
+        "modelUnavailable": "The chosen model is not available; pick another",
+        "requestRejected": "OpenRouter rejected the request; the Decisions API may have changed, see the log",
+        "providerUnavailable": "The model provider is not responding; try again later",
+        "connectionFailed": "Could not reach OpenRouter",
+        "timeout": "OpenRouter took too long to answer",
+        "invalidResponse": "OpenRouter sent an answer MangoDisk could not read"
+      }
     }
   }
 }

@@ -25,6 +25,8 @@ const program: RunningProgram = {
     installCommand: null,
     installBurst: false,
     container: null,
+    description: 'Answers questions in a chat room',
+    requiredByCount: null,
     facts: [
       { kind: 'serviceRunsProgram', value: { program: 'python3', package: 'python3.12-minimal' } },
       { kind: 'serviceFile', value: { path: '/etc/systemd/system/chat-bot.service', origin: 'addedToEtc' } },
@@ -77,7 +79,7 @@ const program: RunningProgram = {
 
 function row(expanded: boolean) {
   return mount(MdRunningProgramRow, {
-    props: { program, expanded },
+    props: { program, expanded, triage: null },
     global: { plugins: [createPinia(), i18n], stubs: { MdIcon: true } },
   });
 }

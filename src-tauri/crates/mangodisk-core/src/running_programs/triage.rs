@@ -538,21 +538,31 @@ pub async fn triage_programs(
         candidates.len(),
         configuration.model
     );
-    let jobs = candidates.iter().flat_map(|program| {
-        let state = program_state(program, captured_at_ms, home.as_deref());
-        [false, true].map(|reversed| (program.id.clone(), reversed, request_body(&state, reversed)))
-    });
-    let configuration_ref = &configuration;
-    let responses: Vec<(
+    // Jobs own their data so the request futures are `Send` for any caller's runtime.
+    let jobs: Vec<(String, bool, RequestBody)> = candidates
+        .iter()
+        .flat_map(|program| {
+            let state = program_state(program, captured_at_ms, home.as_deref());
+            [false, true]
+                .map(|reversed| (program.id.clone(), reversed, request_body(&state, reversed)))
+        })
+        .collect();
+    let shared = std::sync::Arc::new(configuration.clone());
+    type Outcome = (
         String,
         bool,
         Result<crate::decisions::DecisionResponse, DecisionError>,
-    )> = stream::iter(jobs)
-        .map(|(id, reversed, body)| async move {
-            if TRIAGE_CANCELLED.load(Ordering::Acquire) {
-                return (id, reversed, Err(DecisionError::Cancelled));
+    );
+    let responses: Vec<Outcome> = stream::iter(jobs)
+        .map(move |(id, reversed, body)| {
+            let configuration = std::sync::Arc::clone(&shared);
+            async move {
+                if TRIAGE_CANCELLED.load(Ordering::Acquire) {
+                    return (id, reversed, Err(DecisionError::Cancelled));
+                }
+                let result = decide(&configuration, &body).await;
+                (id, reversed, result)
             }
-            (id, reversed, decide(configuration_ref, &body).await)
         })
         .buffer_unordered(CONCURRENT_REQUESTS)
         .collect()

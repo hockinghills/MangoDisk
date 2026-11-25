@@ -28,6 +28,8 @@ pub enum DecisionError {
     InsufficientCredits,
     RateLimited,
     ModelUnavailable,
+    /// The provider refused the request itself, for example after an API change.
+    RequestRejected,
     ProviderUnavailable,
     ConnectionFailed,
     Timeout,

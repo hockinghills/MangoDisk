@@ -4744,14 +4744,16 @@
       "all": "すべて",
       "sideInstalled": "別経路でインストール",
       "yours": "自分で追加",
-      "quiet": "起動後ほぼアイドル"
+      "quiet": "起動後ほぼアイドル",
+      "leftovers": "残骸の可能性"
     },
     "sorts": {
       "memory": "メモリ + スワップ",
       "cpuNow": "現在の CPU",
       "cpuAverage": "起動以降の CPU",
       "installed": "新しいインストール順",
-      "name": "名前"
+      "name": "名前",
+      "leftoverWeight": "残骸の可能性がある量"
     },
     "summary": {
       "programs": "{programs} 個のプログラム、{processes} 個のプロセス",
@@ -4900,7 +4902,8 @@
         "addedToHome": "サービスファイル {path}（ホームフォルダー内）",
         "generated": "サービスファイル {path}（自動生成）",
         "unknown": "サービスファイル {path}"
-      }
+      },
+      "essentialPackage": "ディストリビューションはこのパッケージをすべてのシステムの一部として扱います"
     },
     "detail": {
       "origin": "インストール方法",
@@ -4925,7 +4928,10 @@
       "executableReplaced": "起動後にプログラムファイルが置き換えまたは削除されました。再起動すると更新が反映されます",
       "memoryNote": "メモリ",
       "memoryResidentNote": "常駐メモリを表示しています。共有ライブラリはプロセスごとに数えられます。他ユーザーのプロセスの比例メモリには管理者権限が必要です",
-      "rendererHint": "アプリは、レンダラーがどのタブやウィンドウを担当しているかを示しません。Chrome または Chromium で Shift+Esc を押すとタスクマネージャーが開き、各タブとプロセス ID が表示されます。その ID をここの PID 列と照らし合わせてください"
+      "rendererHint": "アプリは、レンダラーがどのタブやウィンドウを担当しているかを示しません。Chrome または Chromium で Shift+Esc を押すとタスクマネージャーが開き、各タブとプロセス ID が表示されます。その ID をここの PID 列と照らし合わせてください",
+      "description": "自己説明",
+      "requiredBy": "必要としているもの",
+      "requiredByCount": "インストール済みパッケージ {count} 個"
     },
     "processes": {
       "pid": "PID",
@@ -4953,6 +4959,82 @@
       "explanation": "管理者権限があると、root や他ユーザーのプロセスのプログラムファイル、メモリ、作業フォルダーを読み取れます。デスクトップがパスワードを求めます。スキャンは読み取りのみです",
       "denied": "管理者の認証に失敗したため、スキャンは行われませんでした",
       "unavailable": "管理者権限には polkit パッケージの pkexec が必要ですが、インストールされていません"
+    },
+    "bucket": {
+      "title": "中核コンポーネント以外のすべて:",
+      "headline": "{count} 個のプログラムがメモリとスワップを {footprint} 保持し、平均でコア {cpu} を使用",
+      "small": "そのうち {count} 個はそれぞれ {threshold} 未満で、合計 {footprint}",
+      "groupsLabel": "インストール方法別の量"
+    },
+    "originGroups": {
+      "distro": "ディストリビューションのパッケージ",
+      "python": "Python",
+      "node": "Node.js",
+      "sandboxed": "Flatpak、Snap、AppImage",
+      "containers": "コンテナー",
+      "toolchains": "Homebrew、Cargo、Go、Nix",
+      "projects": "プロジェクトと git クローン",
+      "manual": "手動インストール",
+      "services": "追加したサービス",
+      "unknown": "不明"
+    },
+    "triage": {
+      "run": "判定モデルで仕分け",
+      "rerun": "もう一度仕分け",
+      "running": "{model} に各プログラムを問い合わせ中",
+      "cancel": "キャンセル",
+      "judged": "{model} が {count} 個のプログラムを判定",
+      "cost": "費用 ${cost}",
+      "failedCount": "{count} 個は判定できませんでした",
+      "changeModel": "モデルを変更",
+      "advisory": "これらのラベルは上記の事実をモデルが読み取った結果であり、検査ではありません。何も停止・削除されません",
+      "connectTitle": "判定モデルを接続",
+      "connectDescription": "判定モデルは文章を書く代わりに決まった選択肢に点数を付けるため、1 プログラムあたりの費用は 1 セント未満です。MangoDisk はあなたのキーで OpenRouter の Decisions API を使います",
+      "apiKey": "OpenRouter API キー",
+      "apiKeySaved": "キーは保存済みです。空のままにすると保持します",
+      "apiKeyPlaceholder": "sk-or-…",
+      "model": "モデル",
+      "loadingModels": "OpenRouter からモデルを読み込み中",
+      "chooseModel": "モデルを選択",
+      "pricePerMillion": "入力 100 万トークンあたり ${price}",
+      "privacyNote": "中核コンポーネント以外の各プログラムについて、名前、パッケージ、説明、インストール方法と時期、起動元、それを必要とするパッケージ数を送信します。コマンドライン、フォルダーの内容、リソース使用量は送信しません",
+      "disconnect": "接続を解除",
+      "save": "保存",
+      "chipHint": "このプログラムに対する判定モデルの読み取り。展開して詳細を表示",
+      "detailTitle": "判定モデル",
+      "missPrefix": "停止した場合:",
+      "ordersDisagree": "選択肢の順序を変えると答えが変わったため、慎重に扱ってください",
+      "roles": {
+        "desktop": "デスクトップの一部",
+        "needed": "何かに必要",
+        "tool": "使用中のツール",
+        "leftover": "残骸",
+        "unclear": "判断できない"
+      },
+      "missLevels": {
+        "0": "使っているものは何も変わらない",
+        "1": "重要でないか、めったに使わない機能が止まる",
+        "2": "よく使う機能が動かなくなる",
+        "3": "毎日使うものが壊れる",
+        "4": "デスクトップまたはシステムが動かなくなる"
+      },
+      "errors": {
+        "notConfigured": "先に判定モデルを接続してください",
+        "invalidConfiguration": "判定モデルの設定が無効です",
+        "configurationUnavailable": "判定モデルの設定を読み込めないか保存できません",
+        "busy": "仕分けはすでに実行中です",
+        "cancelled": "仕分けをキャンセルしました",
+        "nothingToJudge": "先に実行中のプログラムをスキャンしてください",
+        "unauthorized": "OpenRouter が API キーを受け付けませんでした",
+        "insufficientCredits": "OpenRouter アカウントのクレジットがありません",
+        "rateLimited": "OpenRouter がリクエストを制限しています。1 分後にもう一度お試しください",
+        "modelUnavailable": "選択したモデルは利用できません。別のモデルを選んでください",
+        "requestRejected": "OpenRouter がリクエストを拒否しました。Decisions API が変わった可能性があります。ログを確認してください",
+        "providerUnavailable": "モデル提供元が応答しません。後でもう一度お試しください",
+        "connectionFailed": "OpenRouter に接続できません",
+        "timeout": "OpenRouter の応答に時間がかかりすぎました",
+        "invalidResponse": "OpenRouter から MangoDisk が読み取れない回答が返されました"
+      }
     }
   }
 }

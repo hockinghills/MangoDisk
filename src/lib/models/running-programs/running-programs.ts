@@ -105,6 +105,7 @@ export type ProgramOriginFact =
   | { kind: 'containerNamesUnavailable' }
   | { kind: 'noPermission' }
   | { kind: 'containerRunsCommand'; value: string }
+  | { kind: 'essentialPackage' }
   | { kind: 'serviceRunsProgram'; value: { program: string; package: string | null } }
   | { kind: 'serviceFile'; value: { path: string; origin: ProgramUnitFileOrigin } };
 
@@ -121,6 +122,8 @@ export interface ProgramOrigin {
   installCommand: string | null;
   installBurst: boolean;
   container: ProgramContainer | null;
+  description: string | null;
+  requiredByCount: number | null;
   facts: ProgramOriginFact[];
 }
 
@@ -241,5 +244,5 @@ export const PROGRAM_ORIGIN_KINDS: readonly ProgramOriginKind[] = [
 
 export const PROGRAM_SAFETY_CLASSES: readonly ProgramSafetyClass[] = ['yours', 'optional', 'system', 'core'];
 
-export type RunningProgramsFilter = 'all' | 'sideInstalled' | 'yours' | 'quiet';
-export type RunningProgramsSort = 'memory' | 'cpuNow' | 'cpuAverage' | 'installed' | 'name';
+export type RunningProgramsFilter = 'all' | 'sideInstalled' | 'yours' | 'quiet' | 'leftovers';
+export type RunningProgramsSort = 'memory' | 'leftoverWeight' | 'cpuNow' | 'cpuAverage' | 'installed' | 'name';

@@ -4744,14 +4744,16 @@
       "all": "全部",
       "sideInstalled": "旁路安装",
       "yours": "你添加的",
-      "quiet": "启动后几乎空闲"
+      "quiet": "启动后几乎空闲",
+      "leftovers": "可能的残留"
     },
     "sorts": {
       "memory": "内存 + 交换",
       "cpuNow": "当前 CPU",
       "cpuAverage": "启动以来 CPU",
       "installed": "最新安装",
-      "name": "名称"
+      "name": "名称",
+      "leftoverWeight": "可能残留的占用"
     },
     "summary": {
       "programs": "{programs} 个程序，{processes} 个进程",
@@ -4900,7 +4902,8 @@
         "addedToHome": "服务文件 {path}（在主文件夹中）",
         "generated": "服务文件 {path}（自动生成）",
         "unknown": "服务文件 {path}"
-      }
+      },
+      "essentialPackage": "发行版将此软件包视为每个系统的组成部分"
     },
     "detail": {
       "origin": "安装方式",
@@ -4925,7 +4928,10 @@
       "executableReplaced": "其程序文件在启动后被替换或删除；重新启动即可使用更新",
       "memoryNote": "内存",
       "memoryResidentNote": "显示常驻内存，共享库会在每个进程中重复计算；其他用户进程的按比例内存需要管理员权限",
-      "rendererHint": "应用不会说明渲染进程对应哪个标签页或窗口。在 Chrome 或 Chromium 中按 Shift+Esc 打开任务管理器，它会列出每个标签页及其进程 ID；将该 ID 与此处的 PID 列对照"
+      "rendererHint": "应用不会说明渲染进程对应哪个标签页或窗口。在 Chrome 或 Chromium 中按 Shift+Esc 打开任务管理器，它会列出每个标签页及其进程 ID；将该 ID 与此处的 PID 列对照",
+      "description": "自我描述",
+      "requiredBy": "依赖它的",
+      "requiredByCount": "{count} 个已安装的软件包"
     },
     "processes": {
       "pid": "PID",
@@ -4953,6 +4959,82 @@
       "explanation": "管理员权限可让扫描读取 root 和其他用户进程的程序文件、内存和工作文件夹。桌面会要求输入密码；扫描只读取信息",
       "denied": "管理员授权失败，因此未进行扫描",
       "unavailable": "管理员权限需要 polkit 软件包中的 pkexec，但它尚未安装"
+    },
+    "bucket": {
+      "title": "除核心组件外的全部：",
+      "headline": "{count} 个程序占用 {footprint} 内存和交换空间，平均使用 {cpu} 个核心",
+      "small": "其中 {count} 个各自不到 {threshold}，合计 {footprint}",
+      "groupsLabel": "按安装方式统计"
+    },
+    "originGroups": {
+      "distro": "发行版软件包",
+      "python": "Python",
+      "node": "Node.js",
+      "sandboxed": "Flatpak、Snap 和 AppImage",
+      "containers": "容器",
+      "toolchains": "Homebrew、Cargo、Go 和 Nix",
+      "projects": "项目和 git 克隆",
+      "manual": "手动安装",
+      "services": "你添加的服务",
+      "unknown": "未知"
+    },
+    "triage": {
+      "run": "用决策模型分拣",
+      "rerun": "重新分拣",
+      "running": "正在向 {model} 询问每个程序",
+      "cancel": "取消",
+      "judged": "{model} 已判断 {count} 个程序",
+      "cost": "费用 ${cost}",
+      "failedCount": "{count} 个无法判断",
+      "changeModel": "更换模型",
+      "advisory": "这些标签是模型对上述事实的解读，而非检查结果；不会停止或删除任何内容",
+      "connectTitle": "连接决策模型",
+      "connectDescription": "决策模型对固定答案打分而不是生成文字，因此每个程序的费用不到一美分。MangoDisk 使用你自己的密钥调用 OpenRouter 的 Decisions API",
+      "apiKey": "OpenRouter API 密钥",
+      "apiKeySaved": "已保存密钥；留空则保留",
+      "apiKeyPlaceholder": "sk-or-…",
+      "model": "模型",
+      "loadingModels": "正在从 OpenRouter 加载模型",
+      "chooseModel": "选择模型",
+      "pricePerMillion": "每百万输入令牌 ${price}",
+      "privacyNote": "对于每个非核心组件的程序，MangoDisk 会发送其名称、软件包、描述、安装方式和时间、启动来源以及依赖它的软件包数量。不会发送命令行、文件夹内容和资源占用",
+      "disconnect": "移除连接",
+      "save": "保存",
+      "chipHint": "决策模型对该程序的解读；展开查看详情",
+      "detailTitle": "决策模型",
+      "missPrefix": "如果停止：",
+      "ordersDisagree": "选项顺序改变后答案也变了，请谨慎对待",
+      "roles": {
+        "desktop": "桌面的一部分",
+        "needed": "被其他程序需要",
+        "tool": "正在使用的工具",
+        "leftover": "残留",
+        "unclear": "无法判断"
+      },
+      "missLevels": {
+        "0": "任何在用的东西都不会改变",
+        "1": "一个次要或很少用的功能会停止",
+        "2": "一个经常使用的功能会停止工作",
+        "3": "某个每天使用的东西会出问题",
+        "4": "桌面或系统会停止工作"
+      },
+      "errors": {
+        "notConfigured": "请先连接决策模型",
+        "invalidConfiguration": "决策模型设置无效",
+        "configurationUnavailable": "无法读取或保存决策模型设置",
+        "busy": "分拣已在进行中",
+        "cancelled": "分拣已取消",
+        "nothingToJudge": "请先扫描运行中的程序",
+        "unauthorized": "OpenRouter 不接受该 API 密钥",
+        "insufficientCredits": "你的 OpenRouter 账户额度已用完",
+        "rateLimited": "OpenRouter 正在限制请求；请一分钟后重试",
+        "modelUnavailable": "所选模型不可用；请换一个",
+        "requestRejected": "OpenRouter 拒绝了请求；Decisions API 可能已变更，请查看日志",
+        "providerUnavailable": "模型提供方没有响应；请稍后重试",
+        "connectionFailed": "无法连接 OpenRouter",
+        "timeout": "OpenRouter 响应超时",
+        "invalidResponse": "OpenRouter 返回了 MangoDisk 无法读取的回答"
+      }
     }
   }
 }

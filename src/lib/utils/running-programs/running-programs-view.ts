@@ -4,15 +4,22 @@ import type {
   RunningProgramsFilter,
   RunningProgramsSort,
 } from '@/lib/models/running-programs/running-programs';
+import type { ProgramTriage } from '@/lib/models/running-programs/triage';
+
+import { originGroup, type ProgramOriginGroup, programFootprintKb } from './running-programs-bucket';
 
 /** Added by hand or by a side installer rather than the distro. Mirrors Core. */
 export function isSideInstall(kind: ProgramOriginKind): boolean {
   return kind !== 'systemPackage' && kind !== 'unknown';
 }
 
-/** Memory and swap together: what the program holds, wherever the kernel keeps it. */
-export function programFootprintKb(program: RunningProgram): number {
-  return program.memoryKb + program.swapKb;
+/** Judged by a decision model, keyed by program id. */
+export type TriageLookup = ReadonlyMap<string, ProgramTriage>;
+
+/** The footprint a model thinks is leftover: what removing the leftovers would give back. */
+export function leftoverWeightKb(program: RunningProgram, triage: TriageLookup): number | null {
+  const result = triage.get(program.id);
+  return result ? programFootprintKb(program) * (result.roleProbabilities.leftover ?? 0) : null;
 }
 
 function matchesQuery(program: RunningProgram, query: string): boolean {
@@ -30,8 +37,10 @@ function matchesQuery(program: RunningProgram, query: string): boolean {
   return haystack.some(value => value.toLocaleLowerCase().includes(needle));
 }
 
-function matchesFilter(program: RunningProgram, filter: RunningProgramsFilter): boolean {
+function matchesFilter(program: RunningProgram, filter: RunningProgramsFilter, triage: TriageLookup): boolean {
   switch (filter) {
+    case 'leftovers':
+      return triage.get(program.id)?.role === 'leftover';
     case 'sideInstalled':
       return isSideInstall(program.origin.kind);
     case 'yours':
@@ -46,17 +55,30 @@ function matchesFilter(program: RunningProgram, filter: RunningProgramsFilter): 
 export function filterPrograms(
   programs: readonly RunningProgram[],
   filter: RunningProgramsFilter,
-  query: string
+  query: string,
+  group: ProgramOriginGroup | null = null,
+  triage: TriageLookup = new Map()
 ): RunningProgram[] {
-  return programs.filter(program => matchesFilter(program, filter) && matchesQuery(program, query));
+  return programs.filter(
+    program =>
+      matchesFilter(program, filter, triage) &&
+      matchesQuery(program, query) &&
+      (group === null || originGroup(program.origin.kind) === group)
+  );
 }
 
-export function sortPrograms(programs: readonly RunningProgram[], sort: RunningProgramsSort): RunningProgram[] {
+export function sortPrograms(
+  programs: readonly RunningProgram[],
+  sort: RunningProgramsSort,
+  triage: TriageLookup = new Map()
+): RunningProgram[] {
   const byName = (left: RunningProgram, right: RunningProgram) => left.name.localeCompare(right.name);
   const descending = (value: (program: RunningProgram) => number) => (left: RunningProgram, right: RunningProgram) =>
     value(right) - value(left) || byName(left, right);
   const compare = {
     memory: descending(programFootprintKb),
+    // Programs the model has not judged go last.
+    leftoverWeight: descending(program => leftoverWeightKb(program, triage) ?? -1),
     cpuNow: descending(program => program.cpuPercentNow),
     cpuAverage: descending(program => program.cpuPercentAverage),
     // Newest installs first; programs without a known date go last.

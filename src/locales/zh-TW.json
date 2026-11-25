@@ -4744,14 +4744,16 @@
       "all": "全部",
       "sideInstalled": "旁路安裝",
       "yours": "你新增的",
-      "quiet": "啟動後幾乎閒置"
+      "quiet": "啟動後幾乎閒置",
+      "leftovers": "可能的殘留"
     },
     "sorts": {
       "memory": "記憶體 + 交換",
       "cpuNow": "目前 CPU",
       "cpuAverage": "啟動以來 CPU",
       "installed": "最新安裝",
-      "name": "名稱"
+      "name": "名稱",
+      "leftoverWeight": "可能殘留的佔用"
     },
     "summary": {
       "programs": "{programs} 個程式，{processes} 個處理程序",
@@ -4900,7 +4902,8 @@
         "addedToHome": "服務檔案 {path}（在家目錄中）",
         "generated": "服務檔案 {path}（自動產生）",
         "unknown": "服務檔案 {path}"
-      }
+      },
+      "essentialPackage": "發行版將此套件視為每個系統的組成部分"
     },
     "detail": {
       "origin": "安裝方式",
@@ -4925,7 +4928,10 @@
       "executableReplaced": "其程式檔案在啟動後被取代或刪除；重新啟動即可使用更新",
       "memoryNote": "記憶體",
       "memoryResidentNote": "顯示常駐記憶體，共用程式庫會在每個處理程序中重複計算；其他使用者處理程序的按比例記憶體需要系統管理員權限",
-      "rendererHint": "應用程式不會說明轉譯處理程序對應哪個分頁或視窗。在 Chrome 或 Chromium 中按 Shift+Esc 開啟工作管理員，它會列出每個分頁及其處理程序 ID；將該 ID 與此處的 PID 欄對照"
+      "rendererHint": "應用程式不會說明轉譯處理程序對應哪個分頁或視窗。在 Chrome 或 Chromium 中按 Shift+Esc 開啟工作管理員，它會列出每個分頁及其處理程序 ID；將該 ID 與此處的 PID 欄對照",
+      "description": "自我描述",
+      "requiredBy": "依賴它的",
+      "requiredByCount": "{count} 個已安裝的套件"
     },
     "processes": {
       "pid": "PID",
@@ -4953,6 +4959,82 @@
       "explanation": "系統管理員權限可讓掃描讀取 root 與其他使用者處理程序的程式檔案、記憶體和工作資料夾。桌面會要求輸入密碼；掃描只會讀取資訊",
       "denied": "系統管理員授權失敗，因此未進行掃描",
       "unavailable": "系統管理員權限需要 polkit 套件中的 pkexec，但尚未安裝"
+    },
+    "bucket": {
+      "title": "除核心元件外的全部：",
+      "headline": "{count} 個程式佔用 {footprint} 記憶體和交換空間，平均使用 {cpu} 個核心",
+      "small": "其中 {count} 個各自不到 {threshold}，合計 {footprint}",
+      "groupsLabel": "依安裝方式統計"
+    },
+    "originGroups": {
+      "distro": "發行版套件",
+      "python": "Python",
+      "node": "Node.js",
+      "sandboxed": "Flatpak、Snap 和 AppImage",
+      "containers": "容器",
+      "toolchains": "Homebrew、Cargo、Go 和 Nix",
+      "projects": "專案和 git 複製",
+      "manual": "手動安裝",
+      "services": "你新增的服務",
+      "unknown": "未知"
+    },
+    "triage": {
+      "run": "用決策模型分揀",
+      "rerun": "重新分揀",
+      "running": "正在向 {model} 詢問每個程式",
+      "cancel": "取消",
+      "judged": "{model} 已判斷 {count} 個程式",
+      "cost": "費用 ${cost}",
+      "failedCount": "{count} 個無法判斷",
+      "changeModel": "更換模型",
+      "advisory": "這些標籤是模型對上述事實的解讀，而非檢查結果；不會停止或移除任何內容",
+      "connectTitle": "連接決策模型",
+      "connectDescription": "決策模型對固定答案評分而不是產生文字，因此每個程式的費用不到一美分。MangoDisk 使用你自己的金鑰呼叫 OpenRouter 的 Decisions API",
+      "apiKey": "OpenRouter API 金鑰",
+      "apiKeySaved": "已儲存金鑰；留空則保留",
+      "apiKeyPlaceholder": "sk-or-…",
+      "model": "模型",
+      "loadingModels": "正在從 OpenRouter 載入模型",
+      "chooseModel": "選擇模型",
+      "pricePerMillion": "每百萬輸入權杖 ${price}",
+      "privacyNote": "對於每個非核心元件的程式，MangoDisk 會傳送其名稱、套件、描述、安裝方式與時間、啟動來源，以及依賴它的套件數量。不會傳送命令列、資料夾內容和資源用量",
+      "disconnect": "移除連接",
+      "save": "儲存",
+      "chipHint": "決策模型對此程式的解讀；展開查看詳細資料",
+      "detailTitle": "決策模型",
+      "missPrefix": "如果停止：",
+      "ordersDisagree": "選項順序改變後答案也變了，請謹慎看待",
+      "roles": {
+        "desktop": "桌面的一部分",
+        "needed": "被其他程式需要",
+        "tool": "正在使用的工具",
+        "leftover": "殘留",
+        "unclear": "無法判斷"
+      },
+      "missLevels": {
+        "0": "任何在用的東西都不會改變",
+        "1": "一個次要或很少用的功能會停止",
+        "2": "一個經常使用的功能會停止運作",
+        "3": "某個每天使用的東西會出問題",
+        "4": "桌面或系統會停止運作"
+      },
+      "errors": {
+        "notConfigured": "請先連接決策模型",
+        "invalidConfiguration": "決策模型設定無效",
+        "configurationUnavailable": "無法讀取或儲存決策模型設定",
+        "busy": "分揀已在進行中",
+        "cancelled": "分揀已取消",
+        "nothingToJudge": "請先掃描執行中的程式",
+        "unauthorized": "OpenRouter 不接受此 API 金鑰",
+        "insufficientCredits": "你的 OpenRouter 帳戶額度已用完",
+        "rateLimited": "OpenRouter 正在限制請求；請一分鐘後再試",
+        "modelUnavailable": "所選模型無法使用；請換一個",
+        "requestRejected": "OpenRouter 拒絕了請求；Decisions API 可能已變更，請查看記錄",
+        "providerUnavailable": "模型供應商沒有回應；請稍後再試",
+        "connectionFailed": "無法連線到 OpenRouter",
+        "timeout": "OpenRouter 回應逾時",
+        "invalidResponse": "OpenRouter 傳回了 MangoDisk 無法讀取的回答"
+      }
     }
   }
 }

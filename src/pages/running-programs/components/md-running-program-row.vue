@@ -8,6 +8,8 @@ import MdTooltip from '@/components/custom/md-tooltip.vue';
 import MdIcon from '@/components/icons/md-icon.vue';
 import { ICON_NAMES } from '@/lib/models/presentation/ui';
 import type { ProgramSafetyClass, RunningProgram } from '@/lib/models/running-programs/running-programs';
+import type { ProgramTriage, TriageRole } from '@/lib/models/running-programs/triage';
+import { TRIAGE_ROLES } from '@/lib/models/running-programs/triage';
 import { FormatService } from '@/lib/services/presentation/format-service';
 import { ByteSizeService } from '@/lib/services/settings/byte-size-service';
 import {
@@ -21,6 +23,7 @@ import { cpuPercentText } from '@/lib/utils/running-programs/running-programs-vi
 const props = defineProps<{
   program: RunningProgram;
   expanded: boolean;
+  triage: ProgramTriage | null;
 }>();
 
 const emit = defineEmits<{
@@ -86,6 +89,31 @@ const launches = computed(() => props.program.launches.map(launch => text(launch
 const memoryLabel = computed(() =>
   props.program.memoryIsProportional ? t('runningPrograms.columns.memory') : t('runningPrograms.columns.memoryResident')
 );
+const TRIAGE_TONES: Record<TriageRole, 'neutral' | 'primary' | 'warning'> = {
+  desktop: 'neutral',
+  needed: 'neutral',
+  tool: 'primary',
+  leftover: 'warning',
+  unclear: 'neutral',
+};
+
+function percent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+const triageRoles = computed(() =>
+  props.triage
+    ? TRIAGE_ROLES.map(role => ({ role, probability: props.triage?.roleProbabilities[role] ?? 0 })).sort(
+        (left, right) => right.probability - left.probability
+      )
+    : []
+);
+const missLevelKey = computed(() =>
+  props.triage && props.triage.missProbabilities.length
+    ? `runningPrograms.triage.missLevels.${Math.min(4, Math.max(0, Math.round(props.triage.missLevel)))}`
+    : null
+);
+
 const startedText = computed(() => FormatService.dateTime(props.program.startedAtMs, locale.value));
 </script>
 
@@ -124,6 +152,11 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
         <span class="program-metric">{{ cpuPercentText(program.cpuPercentNow) }}</span>
         <span class="program-metric program-metric--muted">{{ cpuPercentText(program.cpuPercentAverage) }}</span>
         <span class="program-badges">
+          <MdTooltip v-if="triage" :text="t('runningPrograms.triage.chipHint')">
+            <MdStatusBadge size="compact" :tone="TRIAGE_TONES[triage.role]">
+              {{ t(`runningPrograms.triage.roles.${triage.role}`) }} {{ percent(triage.confidence) }}
+            </MdStatusBadge>
+          </MdTooltip>
           <MdTooltip :text="t(`runningPrograms.safetyDescriptions.${program.safety}`)">
             <MdStatusBadge size="compact" :tone="SAFETY_TONES[program.safety]">
               {{ t(`runningPrograms.safety.${program.safety}`) }}
@@ -135,6 +168,29 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
 
     <div v-if="expanded" class="program-detail">
       <dl class="detail-list">
+        <template v-if="triage">
+          <dt>{{ t('runningPrograms.triage.detailTitle') }}</dt>
+          <dd>
+            <ul class="detail-bullets">
+              <li v-for="entry in triageRoles" :key="entry.role">
+                {{ t(`runningPrograms.triage.roles.${entry.role}`) }}: {{ percent(entry.probability) }}
+              </li>
+              <li v-if="missLevelKey">{{ t('runningPrograms.triage.missPrefix') }} {{ t(missLevelKey) }}</li>
+              <li v-if="!triage.ordersAgree">{{ t('runningPrograms.triage.ordersDisagree') }}</li>
+            </ul>
+          </dd>
+        </template>
+
+        <template v-if="origin.description">
+          <dt>{{ t('runningPrograms.detail.description') }}</dt>
+          <dd>{{ origin.description }}</dd>
+        </template>
+
+        <template v-if="origin.requiredByCount !== null">
+          <dt>{{ t('runningPrograms.detail.requiredBy') }}</dt>
+          <dd>{{ t('runningPrograms.detail.requiredByCount', { count: origin.requiredByCount }) }}</dd>
+        </template>
+
         <dt>{{ t('runningPrograms.detail.origin') }}</dt>
         <dd>
           {{ originLabel }}
@@ -270,7 +326,7 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
   width: 100%;
   min-width: 0;
   min-height: 52px;
-  grid-template-columns: 16px minmax(10rem, 1.4fr) minmax(8rem, 1.6fr) repeat(4, 5.5rem) 6.5rem;
+  grid-template-columns: 16px minmax(10rem, 1.4fr) minmax(8rem, 1.6fr) repeat(4, 5.5rem) 12rem;
   align-items: center;
   gap: 10px;
   padding-block: 4px;
@@ -307,6 +363,7 @@ const startedText = computed(() => FormatService.dateTime(props.program.startedA
 .program-badges {
   display: flex;
   justify-content: flex-end;
+  gap: 6px;
 }
 
 .program-chevron {

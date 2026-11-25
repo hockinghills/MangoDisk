@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import MdCategoryFilter from '@/components/custom/md-category-filter.vue';
@@ -22,21 +22,48 @@ import { ByteSizeService } from '@/lib/services/settings/byte-size-service';
 import { filterPrograms } from '@/lib/utils/running-programs/running-programs-view';
 import { useRunningProgramsStore } from '@/stores/running-programs-store';
 
+import MdDecisionModelDialog from './components/md-decision-model-dialog.vue';
 import MdRunningProgramRow from './components/md-running-program-row.vue';
+import MdRunningProgramsBucket from './components/md-running-programs-bucket.vue';
 
 const { t, locale } = useI18n({ useScope: 'global' });
 const store = useRunningProgramsStore();
 
-const FILTERS: readonly RunningProgramsFilter[] = ['all', 'sideInstalled', 'yours', 'quiet'];
-const SORTS: readonly RunningProgramsSort[] = ['memory', 'cpuNow', 'cpuAverage', 'installed', 'name'];
+const BASE_FILTERS: readonly RunningProgramsFilter[] = ['all', 'sideInstalled', 'yours', 'quiet'];
+const BASE_SORTS: readonly RunningProgramsSort[] = ['memory', 'cpuNow', 'cpuAverage', 'installed', 'name'];
+const FILTERS = computed<readonly RunningProgramsFilter[]>(() =>
+  store.triageReport ? [...BASE_FILTERS, 'leftovers'] : BASE_FILTERS
+);
+const SORTS = computed<readonly RunningProgramsSort[]>(() =>
+  store.triageReport ? ['leftoverWeight', ...BASE_SORTS] : BASE_SORTS
+);
+
+onMounted(() => {
+  if (store.decisionSettings === undefined) void store.loadDecisionSettings();
+});
+
+const triageSummary = computed(() => {
+  const report = store.triageReport;
+  if (!report) return '';
+  const parts = [t('runningPrograms.triage.judged', { count: report.results.length, model: report.model })];
+  if (report.costUsd !== null) {
+    parts.push(
+      t('runningPrograms.triage.cost', {
+        cost: report.costUsd < 0.01 ? report.costUsd.toFixed(4) : report.costUsd.toFixed(2),
+      })
+    );
+  }
+  if (report.failures.length) parts.push(t('runningPrograms.triage.failedCount', { count: report.failures.length }));
+  return parts.join(' · ');
+});
 
 const snapshot = computed(() => store.snapshot);
 const filterOptions = computed(() => {
   const programs = snapshot.value?.programs ?? [];
-  return FILTERS.map(filter => ({
+  return FILTERS.value.map(filter => ({
     value: filter,
     label: t(`runningPrograms.filters.${filter}`),
-    count: filterPrograms(programs, filter, '').length,
+    count: filterPrograms(programs, filter, '', null, store.triageById).length,
   }));
 });
 
@@ -64,11 +91,11 @@ const memoryLine = computed(() => {
 });
 
 function updateFilter(value: string) {
-  if ((FILTERS as readonly string[]).includes(value)) store.setFilter(value as RunningProgramsFilter);
+  if ((FILTERS.value as readonly string[]).includes(value)) store.setFilter(value as RunningProgramsFilter);
 }
 
 function updateSort(value: unknown) {
-  if (typeof value === 'string' && (SORTS as readonly string[]).includes(value)) {
+  if (typeof value === 'string' && (SORTS.value as readonly string[]).includes(value)) {
     store.setSort(value as RunningProgramsSort);
   }
 }
@@ -77,6 +104,10 @@ function updateSort(value: unknown) {
 <template>
   <MdPageShell content-mode="workspace" :title="t('runningPrograms.title')">
     <template v-if="snapshot && !store.scanning" #actions>
+      <Button variant="outline" type="button" :disabled="store.triaging" @click="store.triage()">
+        <MdIcon :name="ICON_NAMES.sparkles" :size="16" />
+        {{ store.triageReport ? t('runningPrograms.triage.rerun') : t('runningPrograms.triage.run') }}
+      </Button>
       <Button v-if="!snapshot.elevated" variant="outline" type="button" @click="store.scan(true)">
         <MdIcon :name="ICON_NAMES.shield" :size="16" />
         {{ t('runningPrograms.rescanElevated') }}
@@ -129,6 +160,31 @@ function updateSort(value: unknown) {
         <p class="summary-note">
           {{ snapshot.elevated ? t('runningPrograms.summary.elevated') : t('runningPrograms.summary.notElevated') }}
         </p>
+        <div v-if="store.triaging || store.triageReport || store.triageError" class="triage-status" role="status">
+          <template v-if="store.triaging">
+            <span>{{ t('runningPrograms.triage.running', { model: store.decisionSettings?.model ?? '' }) }}</span>
+            <Button size="sm" variant="ghost" type="button" @click="store.cancelTriage()">
+              {{ t('runningPrograms.triage.cancel') }}
+            </Button>
+          </template>
+          <span v-else-if="store.triageError" class="triage-error">
+            {{ t(`runningPrograms.triage.errors.${store.triageError}`) }}
+          </span>
+          <template v-else>
+            <span>{{ triageSummary }}</span>
+            <Button size="sm" variant="ghost" type="button" @click="store.openConnectDialog()">
+              {{ t('runningPrograms.triage.changeModel') }}
+            </Button>
+          </template>
+        </div>
+        <p v-if="store.triageReport && !store.triaging" class="summary-note">
+          {{ t('runningPrograms.triage.advisory') }}
+        </p>
+        <MdRunningProgramsBucket
+          :programs="snapshot.programs"
+          :selected-group="store.originGroup"
+          @select-group="store.setOriginGroup"
+        />
       </template>
 
       <template v-if="snapshot" #header>
@@ -206,10 +262,17 @@ function updateSort(value: unknown) {
           :key="program.id"
           :program="program"
           :expanded="store.expandedId === program.id"
+          :triage="store.triageById.get(program.id) ?? null"
           @toggle-expanded="store.toggleExpanded(program.id)"
         />
       </MdResultTable>
     </MdResultWorkspace>
+    <MdDecisionModelDialog
+      :open="store.connectDialogOpen"
+      :settings="store.decisionSettings"
+      @update:open="open => (open ? store.openConnectDialog() : store.closeConnectDialog())"
+      @saved="store.decisionSettingsSaved"
+    />
   </MdPageShell>
 </template>
 
@@ -233,6 +296,18 @@ function updateSort(value: unknown) {
   gap: 10px;
 }
 
+.triage-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 4px;
+  @apply text-sm;
+}
+
+.triage-error {
+  @apply text-destructive-text;
+}
+
 .elevation-problem {
   margin: 8px 16px 0;
   @apply text-sm text-destructive-text;
@@ -241,7 +316,7 @@ function updateSort(value: unknown) {
 /* Matches the row grid in md-running-program-row.vue. */
 .program-columns {
   display: grid;
-  grid-template-columns: 16px minmax(10rem, 1.4fr) minmax(8rem, 1.6fr) repeat(4, 5.5rem) 6.5rem;
+  grid-template-columns: 16px minmax(10rem, 1.4fr) minmax(8rem, 1.6fr) repeat(4, 5.5rem) 12rem;
   gap: 10px;
   padding: 4px var(--result-table-content-inline-padding, 14px);
   @apply text-xs font-medium text-muted-foreground;

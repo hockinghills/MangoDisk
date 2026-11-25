@@ -4744,14 +4744,16 @@
       "all": "Tümü",
       "sideInstalled": "Harici kurulan",
       "yours": "Sizin eklediğiniz",
-      "quiet": "Başladığından beri sakin"
+      "quiet": "Başladığından beri sakin",
+      "leftovers": "Olası artıklar"
     },
     "sorts": {
       "memory": "Bellek + takas",
       "cpuNow": "Şu anki CPU",
       "cpuAverage": "Başlangıçtan beri CPU",
       "installed": "En yeni kurulumlar",
-      "name": "Ad"
+      "name": "Ad",
+      "leftoverWeight": "Olası artık ağırlığı"
     },
     "summary": {
       "programs": "{programs} program, {processes} işlem",
@@ -4900,7 +4902,8 @@
         "addedToHome": "Hizmet dosyası {path} (ev klasörünüzde)",
         "generated": "Hizmet dosyası {path} (oluşturuldu)",
         "unknown": "Hizmet dosyası {path}"
-      }
+      },
+      "essentialPackage": "Dağıtım bu paketi her sistemin parçası sayar"
     },
     "detail": {
       "origin": "Kurulum şekli",
@@ -4925,7 +4928,10 @@
       "executableReplaced": "Program dosyası başladıktan sonra değiştirildi veya silindi; yeniden başlatmak güncellemeyi uygular",
       "memoryNote": "Bellek",
       "memoryResidentNote": "Yerleşik bellek gösteriliyor; paylaşılan kitaplıklar her işlemde sayılır. Diğer kullanıcıların işlemlerinde orantılı bellek yönetici hakları gerektirir",
-      "rendererHint": "Uygulama, bir oluşturucunun hangi sekmeye veya pencereye hizmet ettiğini söylemez. Chrome veya Chromium'da Shift+Esc ile Görev yöneticisini açın; her sekme işlem kimliğiyle listelenir. Bu kimliği buradaki PID sütunuyla eşleştirin"
+      "rendererHint": "Uygulama, bir oluşturucunun hangi sekmeye veya pencereye hizmet ettiğini söylemez. Chrome veya Chromium'da Shift+Esc ile Görev yöneticisini açın; her sekme işlem kimliğiyle listelenir. Bu kimliği buradaki PID sütunuyla eşleştirin",
+      "description": "Kendini şöyle tanımlıyor",
+      "requiredBy": "İhtiyaç duyanlar",
+      "requiredByCount": "{count} kurulu paket"
     },
     "processes": {
       "pid": "PID",
@@ -4953,6 +4959,82 @@
       "explanation": "Yönetici hakları, root ve diğer kullanıcıların işlemlerinin program dosyasını, belleğini ve çalışma klasörünü okumayı sağlar. Masaüstü parolanızı sorar; tarama yalnızca okur",
       "denied": "Yönetici yetkilendirmesi başarısız oldu, tarama yapılmadı",
       "unavailable": "Yönetici hakları için polkit paketindeki pkexec gerekir, ancak kurulu değil"
+    },
+    "bucket": {
+      "title": "Çekirdek bileşenler dışındaki her şey:",
+      "headline": "{count} program {footprint} bellek ve takas tutuyor ve ortalama {cpu} çekirdek kullanıyor",
+      "small": "Bunlardan {count} tanesi tek tek {threshold} altında, toplamda {footprint}",
+      "groupsLabel": "Kurulum yöntemine göre ağırlık"
+    },
+    "originGroups": {
+      "distro": "Dağıtım paketleri",
+      "python": "Python",
+      "node": "Node.js",
+      "sandboxed": "Flatpak, Snap ve AppImage",
+      "containers": "Kapsayıcılar",
+      "toolchains": "Homebrew, Cargo, Go ve Nix",
+      "projects": "Projeler ve git klonları",
+      "manual": "Elle kurulanlar",
+      "services": "Eklediğiniz hizmetler",
+      "unknown": "Bilinmiyor"
+    },
+    "triage": {
+      "run": "Karar modeliyle ayıkla",
+      "rerun": "Yeniden ayıkla",
+      "running": "{model} her programı değerlendiriyor",
+      "cancel": "İptal",
+      "judged": "{model} {count} programı değerlendirdi",
+      "cost": "maliyet ${cost}",
+      "failedCount": "{count} tanesi değerlendirilemedi",
+      "changeModel": "Modeli değiştir",
+      "advisory": "Bu etiketler modelin yukarıdaki olguları yorumudur, denetim değildir; hiçbir şey durdurulmaz veya kaldırılmaz",
+      "connectTitle": "Bir karar modeli bağla",
+      "connectDescription": "Karar modelleri metin yazmak yerine sabit yanıtları puanlar; bu yüzden program başına maliyet bir sentin küçük bir kesridir. MangoDisk, kendi anahtarınızla OpenRouter Decisions API'sini kullanır",
+      "apiKey": "OpenRouter API anahtarı",
+      "apiKeySaved": "Bir anahtar kayıtlı; korumak için boş bırakın",
+      "apiKeyPlaceholder": "sk-or-…",
+      "model": "Model",
+      "loadingModels": "Modeller OpenRouter'dan yükleniyor",
+      "chooseModel": "Bir model seçin",
+      "pricePerMillion": "Milyon girdi belirteci başına ${price}",
+      "privacyNote": "Çekirdek bileşen olmayan her program için MangoDisk adını, paketini, açıklamasını, nasıl ve ne zaman kurulduğunu, onu neyin başlattığını ve kaç paketin ona ihtiyaç duyduğunu gönderir. Komut satırları, klasör içerikleri ve kaynak kullanımı gönderilmez",
+      "disconnect": "Bağlantıyı kaldır",
+      "save": "Kaydet",
+      "chipHint": "Bir karar modelinin bu programı yorumu; ayrıntılar için genişletin",
+      "detailTitle": "Karar modeli",
+      "missPrefix": "Durursa:",
+      "ordersDisagree": "Seçeneklerin sırası değişince yanıt da değişti; dikkatle değerlendirin",
+      "roles": {
+        "desktop": "Masaüstünün parçası",
+        "needed": "Bir şeyin ihtiyacı",
+        "tool": "Kullanılan araç",
+        "leftover": "Artık",
+        "unclear": "Belirsiz"
+      },
+      "missLevels": {
+        "0": "Kullanılan hiçbir şey değişmez",
+        "1": "Önemsiz veya nadiren kullanılan bir özellik durur",
+        "2": "Düzenli kullanılan bir özellik çalışmaz",
+        "3": "Her gün kullanılan bir şey bozulur",
+        "4": "Masaüstü veya sistem çalışmaz"
+      },
+      "errors": {
+        "notConfigured": "Önce bir karar modeli bağlayın",
+        "invalidConfiguration": "Karar modeli ayarları geçersiz",
+        "configurationUnavailable": "Karar modeli ayarları okunamadı veya kaydedilemedi",
+        "busy": "Bir ayıklama zaten sürüyor",
+        "cancelled": "Ayıklama iptal edildi",
+        "nothingToJudge": "Önce çalışan programları tarayın",
+        "unauthorized": "OpenRouter API anahtarını kabul etmedi",
+        "insufficientCredits": "OpenRouter hesabınızın kredisi bitti",
+        "rateLimited": "OpenRouter istekleri sınırlıyor; bir dakika sonra yeniden deneyin",
+        "modelUnavailable": "Seçilen model kullanılamıyor; başka bir model seçin",
+        "requestRejected": "OpenRouter isteği reddetti; Decisions API değişmiş olabilir, günlüğe bakın",
+        "providerUnavailable": "Model sağlayıcısı yanıt vermiyor; daha sonra yeniden deneyin",
+        "connectionFailed": "OpenRouter'a ulaşılamadı",
+        "timeout": "OpenRouter çok geç yanıt verdi",
+        "invalidResponse": "OpenRouter, MangoDisk'in okuyamadığı bir yanıt gönderdi"
+      }
     }
   }
 }
